@@ -49,7 +49,7 @@
 
         /* Prevent system gestures interference */
         * { -webkit-touch-callout: none; -webkit-user-select: none; }
-        input, textarea { -webkit-user-select: text; user-select: text; }
+        input, textarea, select { -webkit-user-select: text; user-select: text; }
 
         .sidebar-item { touch-action: none; user-select: none; }
     </style>
@@ -381,7 +381,17 @@
         });
 
         WORKSPACE.onpointerdown = (e) => {
-            if (e.target.closest('.device-node') || e.target.closest('.text-label') || e.target.closest('#port-selector') || e.target.closest('button')) return;
+            // Updated Guard to ensure floating panels and inputs don't trigger background click logic
+            if (e.target.closest('.device-node') || 
+                e.target.closest('.text-label') || 
+                e.target.closest('#port-selector') || 
+                e.target.closest('#floating-properties') || 
+                e.target.closest('#floating-console') || 
+                e.target.closest('#floating-ping') || 
+                e.target.closest('#bottom-toolbar') || 
+                e.target.closest('button') || 
+                e.target.tagName === 'INPUT' || 
+                e.target.tagName === 'SELECT') return;
             
             if (pendingCableSource) {
                 pendingCableSource = null;
@@ -535,7 +545,6 @@
                 const b = document.createElement('div');
                 b.className = 'px-6 py-4 hover:bg-blue-600 cursor-pointer border-b border-slate-800 last:border-0';
                 b.textContent = dev.type === 'Switch' ? `Fa0/${p.id}` : p.id;
-                // Use onpointerdown for immediate trigger in VR
                 b.onpointerdown = (pe) => { 
                     pe.stopPropagation();
                     sel.classList.add('hidden'); 
@@ -605,16 +614,16 @@
             if (d.type === 'PC') {
                 html += `
                     <div><label class="block text-xs font-black text-slate-400 mb-2 uppercase">IP Address</label>
-                    <input type="text" value="${d.ip}" class="w-full p-4 border-2 rounded-xl font-mono h-14" onchange="devices['${d.id}'].ip=this.value" inputmode="decimal"></div>
+                    <input type="text" value="${d.ip}" class="w-full p-4 border-2 rounded-xl font-mono h-14" oninput="devices['${d.id}'].ip=this.value" inputmode="decimal"></div>
                     <div><label class="block text-xs font-black text-slate-400 mb-2 uppercase">Default Gateway</label>
-                    <input type="text" value="${d.gateway}" class="w-full p-4 border-2 rounded-xl font-mono h-14" onchange="devices['${d.id}'].gateway=this.value" inputmode="decimal"></div>
+                    <input type="text" value="${d.gateway}" class="w-full p-4 border-2 rounded-xl font-mono h-14" oninput="devices['${d.id}'].gateway=this.value" inputmode="decimal"></div>
                 `;
             } else if (d.type === 'Router') {
                 for (let k in d.interfaces) {
                     html += `<div class="p-4 bg-slate-50 rounded-2xl border-2">
                         <div class="font-black text-blue-600 mb-2">${k}</div>
-                        <input type="text" placeholder="IP" value="${d.interfaces[k].ip}" class="w-full p-3 border rounded-lg mb-2" onchange="devices['${d.id}'].interfaces['${k}'].ip=this.value; devices['${d.id}'].updateConnectedRoutes()">
-                        <input type="text" placeholder="Mask" value="${d.interfaces[k].subnet}" class="w-full p-3 border rounded-lg" onchange="devices['${d.id}'].interfaces['${k}'].subnet=this.value; devices['${d.id}'].updateConnectedRoutes()">
+                        <input type="text" placeholder="IP" value="${d.interfaces[k].ip}" class="w-full p-3 border rounded-lg mb-2" oninput="devices['${d.id}'].interfaces['${k}'].ip=this.value; devices['${d.id}'].updateConnectedRoutes()">
+                        <input type="text" placeholder="Mask" value="${d.interfaces[k].subnet}" class="w-full p-3 border rounded-lg" oninput="devices['${d.id}'].interfaces['${k}'].subnet=this.value; devices['${d.id}'].updateConnectedRoutes()">
                     </div>`;
                 }
             }
