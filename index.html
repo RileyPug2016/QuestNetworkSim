@@ -6,7 +6,7 @@
     <title>Network Simulator - VR Optimised</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom scrollbar for a cleaner look */
+        /* Custom scrollbar */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -16,17 +16,21 @@
         .node-icon:hover { transform: scale(1.05); }
         .selected-node { filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.9)); }
         
-        /* Stop Quest browser from panning the page during interactions */
         .touch-none { touch-action: none; }
         
-        /* Grid background for the workspace */
+        /* Grid background (dynamically adjustable for panning) */
         #workspace {
             background-color: #f8fafc;
-            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
-            background-size: 20px 20px;
+            background-image: radial-gradient(rgba(148, 163, 184, 0.4) 2px, transparent 2px);
+            background-size: 30px 30px;
+            background-position: 0px 0px;
+            transition: background-color 0.3s ease;
         }
 
-        /* Connect Mode Interactions */
+        /* MR Passthrough Mode */
+        body.mr-mode { background-color: transparent !important; }
+        #workspace.mr-mode { background-color: transparent !important; }
+
         #workspace.mode-addCable, #workspace.mode-addCable * {
             cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/%3E%3C/svg%3E") 12 12, crosshair !important;
         }
@@ -41,11 +45,6 @@
             transform: scale(1.1);
         }
         
-        #workspace.mode-addCable .device-node:hover {
-            filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.4));
-        }
-
-        /* Highlight the source node when making a connection */
         #workspace .device-node.pending-connection .node-icon {
             border-color: #f59e0b !important;
             box-shadow: 0 0 15px 4px rgba(245, 158, 11, 0.6) !important;
@@ -56,15 +55,14 @@
             50% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
         }
 
-        /* VR Panel dragging styles */
         .panel-header { cursor: grab; }
         .panel-header:active { cursor: grabbing; }
     </style>
 </head>
-<body class="h-screen w-full overflow-hidden flex text-slate-800 font-sans select-none touch-none bg-slate-900">
+<body class="h-screen w-full overflow-hidden flex text-slate-800 font-sans select-none touch-none bg-slate-900 transition-colors duration-300">
 
     <!-- Sidebar Tools -->
-    <div class="w-24 bg-slate-900 border-r border-slate-700 flex flex-col items-center py-4 space-y-4 shadow-lg z-20 shrink-0">
+    <div id="sidebar" class="w-24 bg-slate-900 border-r border-slate-700 flex flex-col items-center py-4 space-y-4 shadow-lg z-20 shrink-0 transition-colors duration-300">
         <button onclick="setMode('select')" id="btn-select" class="p-3 w-20 flex flex-col items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-colors" title="Select / Move">
             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></svg>
             <span class="text-[10px] font-bold uppercase tracking-wide">Select</span>
@@ -105,9 +103,12 @@
     </div>
 
     <!-- Main Workspace -->
-    <div class="flex-1 relative touch-none" id="workspace">
-        <svg id="cables" class="absolute inset-0 w-full h-full pointer-events-none"></svg>
-        <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
+    <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
+        <!-- Panning Container -->
+        <div id="network-layer" class="absolute inset-0 w-full h-full transform-gpu origin-top-left pointer-events-none">
+            <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
+            <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
+        </div>
 
         <!-- Floating Network Console -->
         <div id="floating-console" class="absolute top-4 left-4 w-80 bg-slate-900 rounded-lg shadow-2xl z-40 flex flex-col border border-slate-700 overflow-hidden" style="touch-action: auto;">
@@ -116,7 +117,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
                     <span class="text-xs font-semibold text-slate-300 tracking-wider">NETWORK CONSOLE</span>
                 </div>
-                <button onclick="toggleConsole()" class="p-2 hover:bg-slate-700 rounded transition-colors -mr-2">
+                <button onclick="toggleConsole()" class="p-2 hover:bg-slate-700 rounded transition-colors -mr-2 cursor-pointer pointer-events-auto">
                     <svg id="console-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300 -rotate-90"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
             </div>
@@ -126,18 +127,25 @@
         </div>
 
         <!-- STP Toggle Button -->
-        <div class="absolute top-4 left-[344px] z-30">
+        <div class="absolute top-4 left-[344px] z-30 pointer-events-auto">
             <button id="btn-stp" onclick="toggleSTP()" class="px-6 py-3 bg-slate-800 text-slate-300 font-bold text-sm rounded-lg shadow-lg border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors flex items-center" title="Toggle Spanning Tree Protocol">
                 <span>STP: OFF</span>
             </button>
         </div>
 
-        <!-- Bottom Left Toolbar (Text, Save, Load) -->
-        <div id="bottom-toolbar" class="absolute bottom-6 left-6 z-30 flex items-center space-x-2 bg-slate-900 p-2 rounded-xl shadow-2xl border border-slate-700">
+        <!-- Bottom Left Toolbar (Text, MR, Save, Load) -->
+        <div id="bottom-toolbar" class="absolute bottom-6 left-6 z-30 flex items-center space-x-2 bg-slate-900 p-2 rounded-xl shadow-2xl border border-slate-700 pointer-events-auto">
             <button onclick="setMode('addText')" id="btn-addText" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Add Text Annotation">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/></svg>
             </button>
             <div class="w-px h-8 bg-slate-700 mx-1"></div>
+            
+            <!-- VR OPTIMISED: Mixed Reality Passthrough Toggle -->
+            <button onclick="toggleMRMode()" id="btn-mr" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-purple-400 transition-colors" title="Toggle Mixed Reality Passthrough">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+            </button>
+            <div class="w-px h-8 bg-slate-700 mx-1"></div>
+
             <button onclick="saveTopology()" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Save Topology">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             </button>
@@ -155,7 +163,7 @@
                     <span>Ping Tool</span>
                 </h3>
             </div>
-            <div class="p-4 bg-white space-y-3">
+            <div class="p-4 bg-white space-y-3 pointer-events-auto">
                 <div class="flex flex-col space-y-2">
                     <select id="ping-source" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer">
                         <option value="">Select Source...</option>
@@ -171,19 +179,19 @@
         <!-- Floating Properties Panel -->
         <div id="floating-properties" class="hidden absolute top-48 right-4 w-[340px] bg-white rounded-xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] z-40 flex flex-col border border-slate-200 max-h-[calc(100vh-10rem)]" style="touch-action: auto;">
             <div class="px-4 py-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center touch-none panel-header rounded-t-xl" onpointerdown="initPanelDrag(event, 'floating-properties')">
-                <h2 id="prop-title" class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2">
+                <h2 id="prop-title" class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2 pointer-events-none">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
                     <span>Properties</span>
                 </h2>
-                <button onclick="closeProperties()" class="p-2 -mr-2 text-slate-400 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors" title="Close Properties">
+                <button onclick="closeProperties()" class="p-2 -mr-2 text-slate-400 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors cursor-pointer pointer-events-auto" title="Close Properties">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                 </button>
             </div>
-            <div class="flex-1 overflow-y-auto p-5 bg-white rounded-b-xl" id="properties-panel"></div>
+            <div class="flex-1 overflow-y-auto p-5 bg-white rounded-b-xl pointer-events-auto" id="properties-panel"></div>
         </div>
 
         <!-- Port Selector Menu -->
-        <div id="port-selector" class="hidden absolute bg-slate-900 text-white rounded-lg shadow-2xl border border-slate-700 z-50 py-1 text-sm font-mono min-w-[120px] overflow-hidden">
+        <div id="port-selector" class="hidden absolute bg-slate-900 text-white rounded-lg shadow-2xl border border-slate-700 z-50 py-1 text-sm font-mono min-w-[120px] overflow-hidden pointer-events-auto">
         </div>
     </div>
 
@@ -202,75 +210,79 @@
         let currentMouseY = 0;
         let stpEnabled = false;
         let activeAnimations = 0;
-        let maxZIndex = 40; // For bringing active panels to the front
+        let maxZIndex = 40; 
         
-        // VR specific state
+        // VR Panning & Layout State
+        let panX = 0;
+        let panY = 0;
+        let isWorkspacePanning = false;
+        let lastPanClientX = 0;
+        let lastPanClientY = 0;
+        let totalPanDelta = 0; // Used to prevent click triggering after a drag
+        let isMRMode = false;
+        
+        // VR UI State
         let ghostEl = null;
         let dragType = null;
         let dragInfo = null;
         let dragStartCoords = { x: 0, y: 0 };
-        
-        // UI Panel Dragging State
         let activePanel = null;
         let panelDragOffset = { x: 0, y: 0 };
 
         const SVG_NS = "http://www.w3.org/2000/svg";
         const WORKSPACE = document.getElementById('workspace');
+        const NETWORK_LAYER = document.getElementById('network-layer');
         const NODES_CONTAINER = document.getElementById('nodes');
         const CABLES_CONTAINER = document.getElementById('cables');
         const CONSOLE = document.getElementById('console-output');
         const PROP_PANEL = document.getElementById('properties-panel');
 
+        // --- VR OPTIMISED: Haptic Feedback Engine ---
+        function triggerHaptic(intensity = 0.6, duration = 40) {
+            try {
+                const gamepads = navigator.getGamepads();
+                for (let gp of gamepads) {
+                    if (gp && gp.vibrationActuator) {
+                        gp.vibrationActuator.playEffect("dual-rumble", {
+                            startDelay: 0,
+                            duration: duration,
+                            weakMagnitude: intensity,
+                            strongMagnitude: intensity
+                        }).catch(e => {}); // Fail silently on non-supported browsers
+                    }
+                }
+            } catch (e) {}
+        }
+
         // --- Utils ---
         const generateMac = () => "XX:XX:XX:XX:XX:XX".replace(/X/g, () => "0123456789ABCDEF".charAt(Math.floor(Math.random() * 16)));
         const generateId = () => 'id-' + Math.random().toString(36).substr(2, 9);
         const log = (msg, type = 'info') => {
-            const div = document.createElement('div');
-            div.textContent = `> ${msg}`;
-            if (type === 'error') div.className = 'text-red-400';
-            else if (type === 'warning') div.className = 'text-yellow-400';
-            else if (type === 'success') div.className = 'text-emerald-400';
-            CONSOLE.appendChild(div);
-            CONSOLE.scrollTop = CONSOLE.scrollHeight;
+            const div = document.createElement('div'); div.textContent = `> ${msg}`;
+            if (type === 'error') div.className = 'text-red-400'; else if (type === 'warning') div.className = 'text-yellow-400'; else if (type === 'success') div.className = 'text-emerald-400';
+            CONSOLE.appendChild(div); CONSOLE.scrollTop = CONSOLE.scrollHeight;
         };
 
-        const ipToInt = (ip) => {
-            return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
-        };
-
+        const ipToInt = (ip) => ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
         const intToIp = (int) => `${(int >>> 24) & 255}.${(int >>> 16) & 255}.${(int >>> 8) & 255}.${int & 255}`;
         const getNetwork = (ip, mask) => intToIp(ipToInt(ip) & ipToInt(mask));
         const getPrefixLength = (mask) => ipToInt(mask).toString(2).split('1').length - 1;
 
         const isSameSubnet = (ip1, ip2, mask) => {
-            try { return (ipToInt(ip1) & ipToInt(mask)) === (ipToInt(ip2) & ipToInt(mask)); } 
-            catch (e) { return false; }
+            try { return (ipToInt(ip1) & ipToInt(mask)) === (ipToInt(ip2) & ipToInt(mask)); } catch (e) { return false; }
         };
 
         const flushMacTables = () => {
             let flushed = false;
-            Object.values(devices).forEach(d => {
-                if (d.type === 'Switch' && Object.keys(d.macTable).length > 0) {
-                    d.macTable = {};
-                    flushed = true;
-                }
-            });
-            if (flushed) {
-                log("Topology change: Switch MAC tables flushed (TCN).", "info");
-                if (selectedDeviceId && devices[selectedDeviceId].type === 'Switch') updatePropertiesPanel();
-            }
+            Object.values(devices).forEach(d => { if (d.type === 'Switch' && Object.keys(d.macTable).length > 0) { d.macTable = {}; flushed = true; } });
+            if (flushed) { log("Topology change: Switch MAC tables flushed (TCN).", "info"); if (selectedDeviceId && devices[selectedDeviceId].type === 'Switch') updatePropertiesPanel(); }
         };
 
         window.evaluateWifiConnections = () => {
             let changed = false;
             Object.values(devices).filter(d => d.type === 'Laptop').forEach(laptop => {
                 if (!laptop.ssid) {
-                    if (laptop.connectedApId) {
-                        window.deleteLink(laptop.port, true);
-                        laptop.connectedApId = null;
-                        changed = true;
-                    }
-                    return;
+                    if (laptop.connectedApId) { window.deleteLink(laptop.port, true); laptop.connectedApId = null; changed = true; } return;
                 }
                 const aps = Object.values(devices).filter(d => d.type === 'AP' && d.ssid === laptop.ssid && d.password === laptop.password);
                 let bestAp = null, bestDist = Infinity;
@@ -278,233 +290,88 @@
                 aps.forEach(ap => {
                     const maxDist = ap.band === '2.4' ? 350 : 200;
                     const dist = Math.hypot(ap.x - laptop.x, ap.y - laptop.y);
-                    if (dist <= maxDist && dist < bestDist) {
-                        bestDist = dist; bestAp = ap;
-                    }
+                    if (dist <= maxDist && dist < bestDist) { bestDist = dist; bestAp = ap; }
                 });
 
                 if (bestAp) {
                     if (laptop.connectedApId !== bestAp.id) {
                         if (laptop.port) window.deleteLink(laptop.port, true);
-                        const linkId = generateId();
-                        links[linkId] = { id: linkId, source: laptop.id, target: bestAp.id, sourcePort: 'wlan0', targetPort: linkId, isWireless: true };
+                        const linkId = generateId(); links[linkId] = { id: linkId, source: laptop.id, target: bestAp.id, sourcePort: 'wlan0', targetPort: linkId, isWireless: true };
                         laptop.port = linkId; laptop.connectedApId = bestAp.id;
-                        log(`[${laptop.name}] Associated with AP '${bestAp.ssid}' (${bestDist.toFixed(0)}px).`, 'success');
-                        changed = true;
+                        triggerHaptic(0.4, 50); // Haptic on connect
+                        log(`[${laptop.name}] Associated with AP '${bestAp.ssid}' (${bestDist.toFixed(0)}px).`, 'success'); changed = true;
                     }
                 } else {
                     if (laptop.connectedApId) {
-                        window.deleteLink(laptop.port, true);
-                        laptop.connectedApId = null;
-                        log(`[${laptop.name}] Lost Wi-Fi connection (out of range).`, 'warning');
-                        changed = true;
+                        window.deleteLink(laptop.port, true); laptop.connectedApId = null;
+                        log(`[${laptop.name}] Lost Wi-Fi connection (out of range).`, 'warning'); changed = true;
                     }
                 }
             });
 
-            if (changed) {
-                flushMacTables();
-                if (stpEnabled) calculateSTP(); else renderLinks();
-                updatePropertiesPanel(); renderNodes();
-            }
+            if (changed) { flushMacTables(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel(); renderNodes(); }
         };
 
         // --- Network Logic Engine ---
         class Device {
-            constructor(type, x, y) {
-                this.id = generateId();
-                this.type = type;
-                this.name = `${type}${deviceCounter[type]++}`;
-                this.mac = generateMac();
-                this.x = x;
-                this.y = y;
-            }
+            constructor(type, x, y) { this.id = generateId(); this.type = type; this.name = `${type}${deviceCounter[type]++}`; this.mac = generateMac(); this.x = x; this.y = y; }
         }
 
         class PC extends Device {
-            constructor(x, y) {
-                super('PC', x, y);
-                this.ip = '0.0.0.0'; this.subnet = '255.255.255.0'; this.gateway = '0.0.0.0';
-                this.port = null; this.arpCache = {};
-            }
+            constructor(x, y) { super('PC', x, y); this.ip = '0.0.0.0'; this.subnet = '255.255.255.0'; this.gateway = '0.0.0.0'; this.port = null; this.arpCache = {}; }
             async receive(frame, inPortId) {
                 if (frame.destMac !== this.mac && frame.destMac !== 'FF:FF:FF:FF:FF:FF') return;
                 const payload = frame.payload;
-                if (payload.type === 'ARP_REQ' && payload.targetIp === this.ip) {
-                    await sleep(100);
-                    transmit({ sourceMac: this.mac, destMac: frame.sourceMac, payload: { type: 'ARP_REP', sourceIp: this.ip, targetIp: payload.sourceIp, targetMac: frame.sourceMac } }, this.id, 1);
-                } 
-                else if (payload.type === 'ARP_REP' && payload.targetIp === this.ip) {
-                    this.arpCache[payload.sourceIp] = frame.sourceMac;
-                    updatePropertiesPanel();
-                    document.dispatchEvent(new CustomEvent('arp_resolved', { detail: { ip: payload.sourceIp, mac: frame.sourceMac }}));
-                }
-                else if (payload.type === 'ICMP_REQ' && payload.targetIp === this.ip) {
-                    await sleep(100);
-                    transmit({ sourceMac: this.mac, destMac: frame.sourceMac, payload: { type: 'ICMP_REP', sourceIp: this.ip, targetIp: payload.sourceIp } }, this.id, 1);
-                }
-                else if (payload.type === 'ICMP_REP' && payload.targetIp === this.ip) {
-                    log(`[${this.name}] Reply from ${payload.sourceIp}: bytes=32 time=1ms TTL=64`, 'success');
-                    document.dispatchEvent(new Event('icmp_replied'));
-                }
+                if (payload.type === 'ARP_REQ' && payload.targetIp === this.ip) { await sleep(100); transmit({ sourceMac: this.mac, destMac: frame.sourceMac, payload: { type: 'ARP_REP', sourceIp: this.ip, targetIp: payload.sourceIp, targetMac: frame.sourceMac } }, this.id, 1); } 
+                else if (payload.type === 'ARP_REP' && payload.targetIp === this.ip) { this.arpCache[payload.sourceIp] = frame.sourceMac; updatePropertiesPanel(); document.dispatchEvent(new CustomEvent('arp_resolved', { detail: { ip: payload.sourceIp, mac: frame.sourceMac }})); }
+                else if (payload.type === 'ICMP_REQ' && payload.targetIp === this.ip) { await sleep(100); transmit({ sourceMac: this.mac, destMac: frame.sourceMac, payload: { type: 'ICMP_REP', sourceIp: this.ip, targetIp: payload.sourceIp } }, this.id, 1); }
+                else if (payload.type === 'ICMP_REP' && payload.targetIp === this.ip) { log(`[${this.name}] Reply from ${payload.sourceIp}: bytes=32 time=1ms TTL=64`, 'success'); document.dispatchEvent(new Event('icmp_replied')); }
             }
         }
 
-        class Laptop extends PC {
-            constructor(x, y) {
-                super(x, y);
-                this.type = 'Laptop'; this.name = `Laptop${deviceCounter.Laptop++}`;
-                this.ssid = ''; this.password = ''; this.connectedApId = null;
-            }
-        }
+        class Laptop extends PC { constructor(x, y) { super(x, y); this.type = 'Laptop'; this.name = `Laptop${deviceCounter.Laptop++}`; this.ssid = ''; this.password = ''; this.connectedApId = null; } }
 
         class Switch extends Device {
-            constructor(x, y) {
-                super('Switch', x, y);
-                this.ports = Array.from({length: 8}, (_, i) => ({ id: i + 1, connectedLink: null, stpState: 'forwarding', adminState: 'up' }));
-                this.macTable = {}; this.stp = { costToRoot: 0, rootBridge: this.id, rootPort: null };
-            }
+            constructor(x, y) { super('Switch', x, y); this.ports = Array.from({length: 8}, (_, i) => ({ id: i + 1, connectedLink: null, stpState: 'forwarding', adminState: 'up' })); this.macTable = {}; this.stp = { costToRoot: 0, rootBridge: this.id, rootPort: null }; }
             async receive(frame, inPortId) {
-                this.macTable[frame.sourceMac] = { portId: inPortId, time: Date.now() };
-                if (selectedDeviceId === this.id) updatePropertiesPanel();
-                const inPort = this.ports.find(p => p.id === inPortId);
-                if (inPort && (inPort.stpState === 'blocking' || inPort.adminState === 'down')) return; 
-
+                this.macTable[frame.sourceMac] = { portId: inPortId, time: Date.now() }; if (selectedDeviceId === this.id) updatePropertiesPanel();
+                const inPort = this.ports.find(p => p.id === inPortId); if (inPort && (inPort.stpState === 'blocking' || inPort.adminState === 'down')) return; 
                 await sleep(100); 
-
-                if (frame.destMac === 'FF:FF:FF:FF:FF:FF') {
-                    this.ports.forEach(p => { if (p.connectedLink && p.stpState === 'forwarding' && p.adminState !== 'down' && p.id !== inPortId) transmit(frame, this.id, p.id); });
-                } else if (this.macTable[frame.destMac]) {
-                    const outPortId = this.macTable[frame.destMac].portId;
-                    const outPort = this.ports.find(p => p.id === outPortId);
-                    if (outPort && outPort.stpState === 'forwarding' && outPort.adminState !== 'down' && outPortId !== inPortId) transmit(frame, this.id, outPortId);
-                    else this.ports.forEach(p => { if (p.connectedLink && p.stpState === 'forwarding' && p.adminState !== 'down' && p.id !== inPortId) transmit(frame, this.id, p.id); });
-                } else {
-                    this.ports.forEach(p => { if (p.connectedLink && p.stpState === 'forwarding' && p.adminState !== 'down' && p.id !== inPortId) transmit(frame, this.id, p.id); });
-                }
+                if (frame.destMac === 'FF:FF:FF:FF:FF:FF') { this.ports.forEach(p => { if (p.connectedLink && p.stpState === 'forwarding' && p.adminState !== 'down' && p.id !== inPortId) transmit(frame, this.id, p.id); }); } 
+                else if (this.macTable[frame.destMac]) { const outPortId = this.macTable[frame.destMac].portId; const outPort = this.ports.find(p => p.id === outPortId); if (outPort && outPort.stpState === 'forwarding' && outPort.adminState !== 'down' && outPortId !== inPortId) transmit(frame, this.id, outPortId); else this.ports.forEach(p => { if (p.connectedLink && p.stpState === 'forwarding' && p.adminState !== 'down' && p.id !== inPortId) transmit(frame, this.id, p.id); }); } 
+                else { this.ports.forEach(p => { if (p.connectedLink && p.stpState === 'forwarding' && p.adminState !== 'down' && p.id !== inPortId) transmit(frame, this.id, p.id); }); }
             }
         }
 
         class Router extends Device {
-            constructor(x, y) {
-                super('Router', x, y);
-                this.interfaces = {
-                    'Fa0/0': { id: 'Fa0/0', type: 'ethernet', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' },
-                    'Se0/0/0': { id: 'Se0/0/0', type: 'serial', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' },
-                    'Se0/0/1': { id: 'Se0/0/1', type: 'serial', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' }
-                };
-                this.routingTable = []; this.arpCache = {}; this.ripEnabled = false; this.ripBroadcastCount = 0;
-            }
-            updateConnectedRoutes() {
-                this.routingTable = this.routingTable.filter(r => r.type !== 'C');
-                Object.values(this.interfaces).forEach(iface => {
-                    if (iface.ip !== '0.0.0.0' && iface.adminState === 'up' && iface.connectedLink) {
-                        this.routingTable.push({ network: getNetwork(iface.ip, iface.subnet), mask: iface.subnet, nextHop: '0.0.0.0', interface: iface.id, metric: 0, type: 'C' });
-                    }
-                });
-            }
+            constructor(x, y) { super('Router', x, y); this.interfaces = { 'Fa0/0': { id: 'Fa0/0', type: 'ethernet', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' }, 'Se0/0/0': { id: 'Se0/0/0', type: 'serial', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' }, 'Se0/0/1': { id: 'Se0/0/1', type: 'serial', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' } }; this.routingTable = []; this.arpCache = {}; this.ripEnabled = false; this.ripBroadcastCount = 0; }
+            updateConnectedRoutes() { this.routingTable = this.routingTable.filter(r => r.type !== 'C'); Object.values(this.interfaces).forEach(iface => { if (iface.ip !== '0.0.0.0' && iface.adminState === 'up' && iface.connectedLink) { this.routingTable.push({ network: getNetwork(iface.ip, iface.subnet), mask: iface.subnet, nextHop: '0.0.0.0', interface: iface.id, metric: 0, type: 'C' }); } }); }
             async receive(frame, inPortId) {
-                const inIface = this.interfaces[inPortId];
-                if (!inIface || inIface.adminState === 'down') return;
-                const payload = frame.payload;
-                const isForMe = frame.destMac === inIface.mac || frame.destMac === 'FF:FF:FF:FF:FF:FF' || frame.destMac === '01:00:5E:00:00:09';
-                if (!isForMe) return;
-
-                if (payload.type === 'ARP_REQ' && payload.targetIp === inIface.ip) {
-                    await sleep(100);
-                    transmit({ sourceMac: inIface.mac, destMac: frame.sourceMac, payload: { type: 'ARP_REP', sourceIp: inIface.ip, targetIp: payload.sourceIp, targetMac: frame.sourceMac } }, this.id, inPortId);
-                    return;
-                }
-                
-                if (payload.type === 'ARP_REP' && payload.targetIp === inIface.ip) {
-                    this.arpCache[payload.sourceIp] = frame.sourceMac;
-                    document.dispatchEvent(new CustomEvent(`router_arp_${this.id}`, { detail: { ip: payload.sourceIp, mac: frame.sourceMac }}));
-                    if (selectedDeviceId === this.id) updatePropertiesPanel();
-                    return;
-                }
-
-                if (payload.type === 'RIP_UPDATE' && this.ripEnabled) {
-                    let updated = false;
-                    payload.routes.forEach(route => {
-                        const newMetric = route.metric + 1;
-                        if (newMetric >= 16) return;
-                        const existing = this.routingTable.find(r => r.network === route.network && r.mask === route.mask);
-                        if (!existing) {
-                            this.routingTable.push({ network: route.network, mask: route.mask, nextHop: payload.sourceIp, interface: inPortId, metric: newMetric, type: 'R' });
-                            updated = true;
-                        } else if (existing.type === 'R') {
-                            if (existing.nextHop === payload.sourceIp) { if (existing.metric !== newMetric) { existing.metric = newMetric; updated = true; } }
-                            else if (newMetric < existing.metric) { existing.metric = newMetric; existing.nextHop = payload.sourceIp; existing.interface = inPortId; updated = true; }
-                        }
-                    });
-                    if (updated) { this.ripBroadcastCount = 0; if (selectedDeviceId === this.id) updatePropertiesPanel(); }
-                    return;
-                }
-
-                if (payload.type === 'ICMP_REQ' && Object.values(this.interfaces).some(i => i.ip === payload.targetIp)) {
-                    await sleep(100);
-                    transmit({ sourceMac: inIface.mac, destMac: frame.sourceMac, payload: { type: 'ICMP_REP', sourceIp: payload.targetIp, targetIp: payload.sourceIp } }, this.id, inPortId);
-                    return;
-                }
+                const inIface = this.interfaces[inPortId]; if (!inIface || inIface.adminState === 'down') return; const payload = frame.payload; const isForMe = frame.destMac === inIface.mac || frame.destMac === 'FF:FF:FF:FF:FF:FF' || frame.destMac === '01:00:5E:00:00:09'; if (!isForMe) return;
+                if (payload.type === 'ARP_REQ' && payload.targetIp === inIface.ip) { await sleep(100); transmit({ sourceMac: inIface.mac, destMac: frame.sourceMac, payload: { type: 'ARP_REP', sourceIp: inIface.ip, targetIp: payload.sourceIp, targetMac: frame.sourceMac } }, this.id, inPortId); return; }
+                if (payload.type === 'ARP_REP' && payload.targetIp === inIface.ip) { this.arpCache[payload.sourceIp] = frame.sourceMac; document.dispatchEvent(new CustomEvent(`router_arp_${this.id}`, { detail: { ip: payload.sourceIp, mac: frame.sourceMac }})); if (selectedDeviceId === this.id) updatePropertiesPanel(); return; }
+                if (payload.type === 'RIP_UPDATE' && this.ripEnabled) { let updated = false; payload.routes.forEach(route => { const newMetric = route.metric + 1; if (newMetric >= 16) return; const existing = this.routingTable.find(r => r.network === route.network && r.mask === route.mask); if (!existing) { this.routingTable.push({ network: route.network, mask: route.mask, nextHop: payload.sourceIp, interface: inPortId, metric: newMetric, type: 'R' }); updated = true; } else if (existing.type === 'R') { if (existing.nextHop === payload.sourceIp) { if (existing.metric !== newMetric) { existing.metric = newMetric; updated = true; } } else if (newMetric < existing.metric) { existing.metric = newMetric; existing.nextHop = payload.sourceIp; existing.interface = inPortId; updated = true; } } }); if (updated) { this.ripBroadcastCount = 0; if (selectedDeviceId === this.id) updatePropertiesPanel(); } return; }
+                if (payload.type === 'ICMP_REQ' && Object.values(this.interfaces).some(i => i.ip === payload.targetIp)) { await sleep(100); transmit({ sourceMac: inIface.mac, destMac: frame.sourceMac, payload: { type: 'ICMP_REP', sourceIp: payload.targetIp, targetIp: payload.sourceIp } }, this.id, inPortId); return; }
                 await this.routePacket(frame);
             }
             async routePacket(frame) {
-                const targetIp = frame.payload.targetIp; if (!targetIp) return; 
-                let bestRoute = null, maxPrefix = -1;
-
-                this.routingTable.forEach(route => {
-                    if (isSameSubnet(targetIp, route.network, route.mask)) {
-                        const prefix = getPrefixLength(route.mask);
-                        if (prefix > maxPrefix) { maxPrefix = prefix; bestRoute = route; }
-                    }
-                });
-
-                if (!bestRoute) return;
-                const outIface = this.interfaces[bestRoute.interface];
-                if (!outIface || outIface.adminState === 'down' || !outIface.connectedLink) return;
-
-                const nextHopIp = bestRoute.type === 'C' ? targetIp : bestRoute.nextHop;
-                let nextHopMac = this.arpCache[nextHopIp];
-
-                if (!nextHopMac) {
-                    let arpResolved = false;
-                    const arpHandler = (e) => { if (e.detail.ip === nextHopIp) arpResolved = true; };
-                    document.addEventListener(`router_arp_${this.id}`, arpHandler, { once: true });
-                    transmit({ sourceMac: outIface.mac, destMac: 'FF:FF:FF:FF:FF:FF', payload: { type: 'ARP_REQ', sourceIp: outIface.ip, targetIp: nextHopIp } }, this.id, outIface.id);
-                    for(let i=0; i<15; i++) { await sleep(100); if (arpResolved) break; }
-                    document.removeEventListener(`router_arp_${this.id}`, arpHandler);
-                    nextHopMac = this.arpCache[nextHopIp];
-                }
-
+                const targetIp = frame.payload.targetIp; if (!targetIp) return; let bestRoute = null, maxPrefix = -1;
+                this.routingTable.forEach(route => { if (isSameSubnet(targetIp, route.network, route.mask)) { const prefix = getPrefixLength(route.mask); if (prefix > maxPrefix) { maxPrefix = prefix; bestRoute = route; } } });
+                if (!bestRoute) return; const outIface = this.interfaces[bestRoute.interface]; if (!outIface || outIface.adminState === 'down' || !outIface.connectedLink) return;
+                const nextHopIp = bestRoute.type === 'C' ? targetIp : bestRoute.nextHop; let nextHopMac = this.arpCache[nextHopIp];
+                if (!nextHopMac) { let arpResolved = false; const arpHandler = (e) => { if (e.detail.ip === nextHopIp) arpResolved = true; }; document.addEventListener(`router_arp_${this.id}`, arpHandler, { once: true }); transmit({ sourceMac: outIface.mac, destMac: 'FF:FF:FF:FF:FF:FF', payload: { type: 'ARP_REQ', sourceIp: outIface.ip, targetIp: nextHopIp } }, this.id, outIface.id); for(let i=0; i<15; i++) { await sleep(100); if (arpResolved) break; } document.removeEventListener(`router_arp_${this.id}`, arpHandler); nextHopMac = this.arpCache[nextHopIp]; }
                 if (nextHopMac) transmit({ sourceMac: outIface.mac, destMac: nextHopMac, payload: frame.payload, ttl: frame.ttl }, this.id, outIface.id);
             }
         }
 
         class AccessPoint extends Device {
-            constructor(x, y) {
-                super('AP', x, y);
-                this.ports = [{ id: 1, connectedLink: null, stpState: 'forwarding', adminState: 'up' }];
-                this.macTable = {}; this.ssid = `WiFi_${this.name}`; this.band = '2.4'; this.security = 'WPA2'; this.password = '';
-            }
+            constructor(x, y) { super('AP', x, y); this.ports = [{ id: 1, connectedLink: null, stpState: 'forwarding', adminState: 'up' }]; this.macTable = {}; this.ssid = `WiFi_${this.name}`; this.band = '2.4'; this.security = 'WPA2'; this.password = ''; }
             async receive(frame, inPortId) {
-                this.macTable[frame.sourceMac] = { portId: inPortId, time: Date.now() };
-                if (selectedDeviceId === this.id) updatePropertiesPanel();
-                await sleep(100); 
-
-                const wirelessLinks = Object.values(links).filter(l => l.isWireless && (l.source === this.id || l.target === this.id));
-                const wiredPort = this.ports.find(p => p.id === 1);
-                const forwardTo = (portId) => transmit(frame, this.id, portId);
-
-                if (frame.destMac === 'FF:FF:FF:FF:FF:FF') {
-                    if (wiredPort && wiredPort.connectedLink && wiredPort.adminState === 'up' && inPortId !== 1) forwardTo(1);
-                    wirelessLinks.forEach(l => { if (l.id !== inPortId) forwardTo(l.id); });
-                } else if (this.macTable[frame.destMac]) {
-                    const outPortId = this.macTable[frame.destMac].portId;
-                    if (outPortId !== inPortId) forwardTo(outPortId);
-                } else {
-                    if (wiredPort && wiredPort.connectedLink && wiredPort.adminState === 'up' && inPortId !== 1) forwardTo(1);
-                    wirelessLinks.forEach(l => { if (l.id !== inPortId) forwardTo(l.id); });
-                }
+                this.macTable[frame.sourceMac] = { portId: inPortId, time: Date.now() }; if (selectedDeviceId === this.id) updatePropertiesPanel(); await sleep(100); 
+                const wirelessLinks = Object.values(links).filter(l => l.isWireless && (l.source === this.id || l.target === this.id)); const wiredPort = this.ports.find(p => p.id === 1); const forwardTo = (portId) => transmit(frame, this.id, portId);
+                if (frame.destMac === 'FF:FF:FF:FF:FF:FF') { if (wiredPort && wiredPort.connectedLink && wiredPort.adminState === 'up' && inPortId !== 1) forwardTo(1); wirelessLinks.forEach(l => { if (l.id !== inPortId) forwardTo(l.id); }); } 
+                else if (this.macTable[frame.destMac]) { const outPortId = this.macTable[frame.destMac].portId; if (outPortId !== inPortId) forwardTo(outPortId); } 
+                else { if (wiredPort && wiredPort.connectedLink && wiredPort.adminState === 'up' && inPortId !== 1) forwardTo(1); wirelessLinks.forEach(l => { if (l.id !== inPortId) forwardTo(l.id); }); }
             }
         }
 
@@ -522,12 +389,8 @@
             let targetPortId; if (link.isWireless) targetPortId = targetDevice.type === 'AP' ? link.id : 'wlan0'; else targetPortId = link.source === fromDeviceId ? link.targetPort : link.sourcePort;
 
             if (!frame.silent) { while (activeAnimations > 60) await sleep(50); }
-
             if (targetDevice.type === 'Switch' || targetDevice.type === 'AP') { const targetPort = targetDevice.ports.find(p => p.id === targetPortId); if (targetPort && (targetPort.stpState === 'blocking' || targetPort.adminState === 'down')) return; }
-
-            if (!frame.silent) { activeAnimations++; await animatePacket(fromDevice, targetDevice, frame.payload.type, link); activeAnimations--; } 
-            else await sleep(100); 
-
+            if (!frame.silent) { activeAnimations++; await animatePacket(fromDevice, targetDevice, frame.payload.type, link); activeAnimations--; } else await sleep(100); 
             if (targetDevice.type === 'Switch' || targetDevice.type === 'AP') { const targetPort = targetDevice.ports.find(p => p.id === targetPortId); if (targetPort && (targetPort.stpState === 'blocking' || targetPort.adminState === 'down')) return; }
 
             targetDevice.receive({...frame}, targetPortId);
@@ -535,7 +398,6 @@
 
         async function animatePacket(sourceDevice, targetDevice, type, link) {
             const pktContainer = document.createElement('div');
-            // VR OPTIMISATION: Explicit hardware acceleration hint for packet container
             pktContainer.className = 'absolute top-0 left-0 z-50 pointer-events-none';
             pktContainer.style.willChange = 'transform'; 
             
@@ -551,18 +413,16 @@
             else if (type === 'RIP_UPDATE') { pktDot.style.backgroundColor = '#c084fc'; pktDot.style.color = '#c084fc'; pktLabel.textContent = 'RIP'; pktLabel.style.color = '#9333ea'; }
             else { pktDot.style.backgroundColor = '#a3e635'; pktDot.style.color = '#a3e635'; pktLabel.textContent = type; }
 
-            pktContainer.appendChild(pktDot); pktContainer.appendChild(pktLabel); WORKSPACE.appendChild(pktContainer);
+            pktContainer.appendChild(pktDot); pktContainer.appendChild(pktLabel); NETWORK_LAYER.appendChild(pktContainer);
 
             const frames = []; const devA = devices[link.source]; const devB = devices[link.target]; const isReversed = sourceDevice.id === link.target;
             const cx = link._cx !== undefined ? link._cx : (devA.x + devB.x)/2; const cy = link._cy !== undefined ? link._cy : (devA.y + devB.y)/2;
             
             for(let i=0; i<=40; i++) {
                 let t = i / 40; let easedT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-                if (isReversed) easedT = 1 - easedT; 
-                const mt = 1 - easedT;
+                if (isReversed) easedT = 1 - easedT; const mt = 1 - easedT;
                 const x = mt * mt * devA.x + 2 * mt * easedT * cx + easedT * easedT * devB.x;
                 const y = mt * mt * devA.y + 2 * mt * easedT * cy + easedT * easedT * devB.y;
-                // Using 3d transform specifically forces GPU composite
                 frames.push({ transform: `translate3d(${x}px, ${y}px, 0)` }); 
             }
 
@@ -571,26 +431,23 @@
         }
 
         function showSuccessTick(deviceId) {
+            triggerHaptic(0.8, 100); // Big haptic pulse on success
             const dev = devices[deviceId]; if (!dev) return;
             const tickContainer = document.createElement('div');
             tickContainer.className = 'absolute z-50 pointer-events-none flex items-center justify-center';
             tickContainer.style.left = `${dev.x}px`; tickContainer.style.top = `${dev.y - 45}px`; tickContainer.style.transform = 'translate(-50%, -50%)';
             tickContainer.style.willChange = 'transform, opacity';
             tickContainer.innerHTML = `<div class="bg-emerald-500 text-white rounded-full p-2 shadow-lg shadow-emerald-500/50"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
-            WORKSPACE.appendChild(tickContainer);
+            NETWORK_LAYER.appendChild(tickContainer);
             const animation = tickContainer.animate([{ transform: 'translate(-50%, -50%) scale(0.5)', opacity: 0 }, { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 1, offset: 0.15 }, { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0.3 }, { transform: 'translate(-50%, -80px) scale(1)', opacity: 0 }], { duration: 2500, easing: 'ease-in-out' });
             animation.finished.then(() => tickContainer.remove());
         }
 
-        // --- STP (Spanning Tree Protocol) Logic ---
+        // --- STP Logic ---
         function calculateSTP() {
             const switches = Object.values(devices).filter(d => d.type === 'Switch'); if (switches.length === 0) return;
             let rootBridge = switches.reduce((min, s) => (s.mac < min.mac ? s : min), switches[0]);
-            
-            switches.forEach(s => {
-                s.stp = { rootBridge: rootBridge.id, costToRoot: s.id === rootBridge.id ? 0 : Infinity, rootPort: null };
-                s.ports.forEach(p => { if(p.connectedLink) p.stpState = p.adminState === 'down' ? 'down' : 'blocking'; }); 
-            });
+            switches.forEach(s => { s.stp = { rootBridge: rootBridge.id, costToRoot: s.id === rootBridge.id ? 0 : Infinity, rootPort: null }; s.ports.forEach(p => { if(p.connectedLink) p.stpState = p.adminState === 'down' ? 'down' : 'blocking'; }); });
 
             let updated = true; let iterations = 0;
             while(updated && iterations < 20) {
@@ -600,7 +457,6 @@
                     let portADown = devA.type === 'Switch' && devA.ports.find(p => p.id === link.sourcePort).adminState === 'down';
                     let portBDown = devB.type === 'Switch' && devB.ports.find(p => p.id === link.targetPort).adminState === 'down';
                     if (portADown || portBDown) continue; 
-
                     if (devA.type === 'Switch' && devB.type === 'Switch') {
                         let cost = 19; 
                         if (devA.stp.costToRoot + cost < devB.stp.costToRoot) { devB.stp.costToRoot = devA.stp.costToRoot + cost; devB.stp.rootPort = link.targetPort; updated = true; } 
@@ -608,92 +464,70 @@
                     }
                 }
             }
-
-            switches.forEach(s => {
-                if (s.id === rootBridge.id) { s.ports.forEach(p => { if(p.connectedLink && p.adminState !== 'down') p.stpState = 'forwarding'; }); } 
-                else { let rp = s.ports.find(p => p.id === s.stp.rootPort); if (rp && rp.adminState !== 'down') rp.stpState = 'forwarding'; }
-            });
-
+            switches.forEach(s => { if (s.id === rootBridge.id) { s.ports.forEach(p => { if(p.connectedLink && p.adminState !== 'down') p.stpState = 'forwarding'; }); } else { let rp = s.ports.find(p => p.id === s.stp.rootPort); if (rp && rp.adminState !== 'down') rp.stpState = 'forwarding'; } });
             for (let linkId in links) {
                 let link = links[linkId]; let devA = devices[link.source]; let devB = devices[link.target];
-                let portADown = devA.type === 'Switch' && devA.ports.find(p => p.id === link.sourcePort).adminState === 'down';
-                let portBDown = devB.type === 'Switch' && devB.ports.find(p => p.id === link.targetPort).adminState === 'down';
-                if (portADown || portBDown) continue;
-
-                if (devA.type === 'Switch' && devB.type === 'Switch') {
-                    let portA = devA.ports.find(p => p.id === link.sourcePort); let portB = devB.ports.find(p => p.id === link.targetPort);
-                    if (portA.stpState !== 'forwarding' && portB.stpState !== 'forwarding') {
-                        if (devA.stp.costToRoot < devB.stp.costToRoot) portA.stpState = 'forwarding';
-                        else if (devB.stp.costToRoot < devA.stp.costToRoot) portB.stpState = 'forwarding';
-                        else { if (devA.mac < devB.mac) portA.stpState = 'forwarding'; else portB.stpState = 'forwarding'; }
-                    } else if (portA.stpState === 'forwarding' && portB.stpState !== 'forwarding') { if (devA.stp.rootPort !== portA.id) portB.stpState = 'blocking'; } 
-                    else if (portB.stpState === 'forwarding' && portA.stpState !== 'forwarding') { if (devB.stp.rootPort !== portB.id) portA.stpState = 'blocking'; }
-                } else if (devA.type === 'Switch' && (devB.type === 'PC' || devB.type === 'Router' || devB.type === 'AP')) { devA.ports.find(p => p.id === link.sourcePort).stpState = 'forwarding'; } 
-                else if (devB.type === 'Switch' && (devA.type === 'PC' || devA.type === 'Router' || devA.type === 'AP')) { devB.ports.find(p => p.id === link.targetPort).stpState = 'forwarding'; }
+                let portADown = devA.type === 'Switch' && devA.ports.find(p => p.id === link.sourcePort).adminState === 'down'; let portBDown = devB.type === 'Switch' && devB.ports.find(p => p.id === link.targetPort).adminState === 'down'; if (portADown || portBDown) continue;
+                if (devA.type === 'Switch' && devB.type === 'Switch') { let portA = devA.ports.find(p => p.id === link.sourcePort); let portB = devB.ports.find(p => p.id === link.targetPort); if (portA.stpState !== 'forwarding' && portB.stpState !== 'forwarding') { if (devA.stp.costToRoot < devB.stp.costToRoot) portA.stpState = 'forwarding'; else if (devB.stp.costToRoot < devA.stp.costToRoot) portB.stpState = 'forwarding'; else { if (devA.mac < devB.mac) portA.stpState = 'forwarding'; else portB.stpState = 'forwarding'; } } else if (portA.stpState === 'forwarding' && portB.stpState !== 'forwarding') { if (devA.stp.rootPort !== portA.id) portB.stpState = 'blocking'; } else if (portB.stpState === 'forwarding' && portA.stpState !== 'forwarding') { if (devB.stp.rootPort !== portB.id) portA.stpState = 'blocking'; } } else if (devA.type === 'Switch' && (devB.type === 'PC' || devB.type === 'Router' || devB.type === 'AP')) { devA.ports.find(p => p.id === link.sourcePort).stpState = 'forwarding'; } else if (devB.type === 'Switch' && (devA.type === 'PC' || devA.type === 'Router' || devA.type === 'AP')) { devB.ports.find(p => p.id === link.targetPort).stpState = 'forwarding'; }
             }
             flushMacTables(); renderLinks(); if (selectedDeviceId) updatePropertiesPanel();
         }
 
-        // --- Global VR Pointer Events & Dragging UI ---
+        // --- VR OPTIMISED: Global Pointer Events & Spatial Dragging ---
 
         window.initPanelDrag = (e, panelId) => {
-            if (e.target.closest('button')) return; // Ignore if clicking a button inside header
-            e.preventDefault();
-            activePanel = document.getElementById(panelId);
-            const rect = activePanel.getBoundingClientRect();
-            
-            // Bump z-index to front
-            maxZIndex++;
-            activePanel.style.zIndex = maxZIndex;
-
-            // Shift from layout-based positioning to explicit left/top positioning for smooth dragging
-            activePanel.style.right = 'auto';
-            activePanel.style.bottom = 'auto';
-            activePanel.style.left = `${rect.left}px`;
-            activePanel.style.top = `${rect.top}px`;
-            
-            panelDragOffset.x = e.clientX - rect.left;
-            panelDragOffset.y = e.clientY - rect.top;
-            
+            if (e.target.closest('button')) return; 
+            e.preventDefault(); activePanel = document.getElementById(panelId);
+            const rect = activePanel.getBoundingClientRect(); maxZIndex++; activePanel.style.zIndex = maxZIndex;
+            activePanel.style.right = 'auto'; activePanel.style.bottom = 'auto'; activePanel.style.left = `${rect.left}px`; activePanel.style.top = `${rect.top}px`;
+            panelDragOffset.x = e.clientX - rect.left; panelDragOffset.y = e.clientY - rect.top;
             activePanel.setPointerCapture(e.pointerId);
         };
 
         window.startSidebarDrag = (e, type, el) => {
-            e.preventDefault();
-            dragType = type;
-            
+            e.preventDefault(); dragType = type;
             ghostEl = document.createElement('div');
             ghostEl.className = 'fixed z-50 pointer-events-none opacity-80 scale-125 bg-slate-800 p-3 rounded-xl shadow-2xl text-white flex flex-col items-center justify-center';
-            ghostEl.innerHTML = el.innerHTML;
-            document.body.appendChild(ghostEl);
-            
+            ghostEl.innerHTML = el.innerHTML; document.body.appendChild(ghostEl);
             moveGhost(e.clientX, e.clientY);
+            triggerHaptic(0.2, 30); // Tiny haptic pulse when picking a tool up
         };
 
-        const moveGhost = (x, y) => {
-            if (ghostEl) {
-                ghostEl.style.left = `${x}px`;
-                ghostEl.style.top = `${y}px`;
-                ghostEl.style.transform = 'translate(-50%, -50%)';
-            }
-        };
+        const moveGhost = (x, y) => { if (ghostEl) { ghostEl.style.left = `${x}px`; ghostEl.style.top = `${y}px`; ghostEl.style.transform = 'translate(-50%, -50%)'; } };
 
         window.spawnDevice = (type, x, y) => {
-            if (type === 'PC') { const pc = new PC(x, y); devices[pc.id] = pc; } 
-            else if (type === 'Laptop') { const lap = new Laptop(x, y); devices[lap.id] = lap; } 
-            else if (type === 'Switch') { const sw = new Switch(x, y); devices[sw.id] = sw; } 
-            else if (type === 'Router') { const r = new Router(x, y); devices[r.id] = r; } 
-            else if (type === 'AP') { const ap = new AccessPoint(x, y); devices[ap.id] = ap; }
+            if (type === 'PC') { const pc = new PC(x, y); devices[pc.id] = pc; } else if (type === 'Laptop') { const lap = new Laptop(x, y); devices[lap.id] = lap; } else if (type === 'Switch') { const sw = new Switch(x, y); devices[sw.id] = sw; } else if (type === 'Router') { const r = new Router(x, y); devices[r.id] = r; } else if (type === 'AP') { const ap = new AccessPoint(x, y); devices[ap.id] = ap; }
+            triggerHaptic(0.5, 40); // Solid thud when dropping
             renderNodes();
         };
 
+        // VR OPTIMISED: Canvas Panning Handlers
+        WORKSPACE.addEventListener('pointerdown', (e) => {
+            if (e.target === WORKSPACE) {
+                isWorkspacePanning = true;
+                lastPanClientX = e.clientX;
+                lastPanClientY = e.clientY;
+                totalPanDelta = 0;
+                WORKSPACE.setPointerCapture(e.pointerId);
+            }
+        });
+
         window.addEventListener('pointermove', (e) => {
-            // Dragging Floating UI Panels
-            if (activePanel) {
-                activePanel.style.left = `${e.clientX - panelDragOffset.x}px`;
-                activePanel.style.top = `${e.clientY - panelDragOffset.y}px`;
+            // Dragging Canvas (Panning)
+            if (isWorkspacePanning) {
+                const dx = e.clientX - lastPanClientX;
+                const dy = e.clientY - lastPanClientY;
+                panX += dx; panY += dy;
+                totalPanDelta += Math.abs(dx) + Math.abs(dy);
+                lastPanClientX = e.clientX; lastPanClientY = e.clientY;
+                
+                NETWORK_LAYER.style.transform = `translate3d(${panX}px, ${panY}px, 0)`;
+                WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
             }
+
+            // Dragging Floating UI Panels
+            if (activePanel) { activePanel.style.left = `${e.clientX - panelDragOffset.x}px`; activePanel.style.top = `${e.clientY - panelDragOffset.y}px`; return; }
 
             // Dragging new device from sidebar
             if (ghostEl) moveGhost(e.clientX, e.clientY);
@@ -701,18 +535,16 @@
             // Dragging existing node
             if (dragInfo && currentMode === 'select') {
                 const rect = WORKSPACE.getBoundingClientRect();
-                currentMouseX = e.clientX - rect.left;
-                currentMouseY = e.clientY - rect.top;
+                // VR Coordinate Math: Offset by the current canvas pan
+                currentMouseX = e.clientX - rect.left - panX;
+                currentMouseY = e.clientY - rect.top - panY;
 
                 if (dragInfo.type === 'Label') {
-                    labels[dragInfo.id].x = currentMouseX;
-                    labels[dragInfo.id].y = currentMouseY;
+                    labels[dragInfo.id].x = currentMouseX; labels[dragInfo.id].y = currentMouseY;
                     const node = document.querySelector(`.text-label-node[data-id="${dragInfo.id}"]`);
                     if (node) { node.style.left = `${currentMouseX}px`; node.style.top = `${currentMouseY}px`; }
                 } else {
-                    const dev = devices[dragInfo.id];
-                    dev.x = currentMouseX;
-                    dev.y = currentMouseY;
+                    const dev = devices[dragInfo.id]; dev.x = currentMouseX; dev.y = currentMouseY;
                     const node = document.querySelector(`.device-node[data-id="${dragInfo.id}"]`);
                     if (node) { node.style.left = `${currentMouseX}px`; node.style.top = `${currentMouseY}px`; }
                     
@@ -721,14 +553,10 @@
                         Object.values(devices).filter(d => d.type === 'Laptop' && d.connectedApId).forEach(laptop => {
                             const ap = devices[laptop.connectedApId];
                             if (ap) {
-                                const maxDist = ap.band === '2.4' ? 350 : 200;
-                                const dist = Math.hypot(ap.x - laptop.x, ap.y - laptop.y);
+                                const maxDist = ap.band === '2.4' ? 350 : 200; const dist = Math.hypot(ap.x - laptop.x, ap.y - laptop.y);
                                 const signal = Math.max(0, Math.min(100, Math.round((1 - (dist / maxDist)) * 100)));
                                 const sigDiv = document.getElementById(`signal-${laptop.id}`);
-                                if (sigDiv) {
-                                    sigDiv.textContent = `${signal}%`;
-                                    sigDiv.className = `absolute top-4 right-4 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10 ${signal < 30 ? 'bg-red-500' : (signal < 60 ? 'bg-yellow-500' : 'bg-green-500')}`;
-                                }
+                                if (sigDiv) { sigDiv.textContent = `${signal}%`; sigDiv.className = `absolute top-4 right-4 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10 ${signal < 30 ? 'bg-red-500' : (signal < 60 ? 'bg-yellow-500' : 'bg-green-500')}`; }
                             }
                         });
                     }
@@ -736,32 +564,33 @@
                 }
             } else if (currentMode === 'addCable' && pendingCableSource) {
                 const rect = WORKSPACE.getBoundingClientRect();
-                currentMouseX = e.clientX - rect.left;
-                currentMouseY = e.clientY - rect.top;
+                currentMouseX = e.clientX - rect.left - panX;
+                currentMouseY = e.clientY - rect.top - panY;
                 renderLinks();
             }
         });
 
         window.addEventListener('pointerup', (e) => {
-            // Drop floating UI Panel
-            if (activePanel) {
-                activePanel.releasePointerCapture(e.pointerId);
-                activePanel = null;
+            // End Canvas Panning
+            if (isWorkspacePanning) {
+                isWorkspacePanning = false;
+                WORKSPACE.releasePointerCapture(e.pointerId);
+                // The actual click handler handles totalPanDelta to ignore accidental clicks
                 return;
             }
+
+            if (activePanel) { activePanel.releasePointerCapture(e.pointerId); activePanel = null; return; }
 
             // Drop a new node
             if (ghostEl) {
                 const rect = WORKSPACE.getBoundingClientRect();
-                if (e.clientX >= rect.left && e.clientX <= rect.right &&
-                    e.clientY >= rect.top && e.clientY <= rect.bottom) {
-                    const x = e.clientX - rect.left;
-                    const y = e.clientY - rect.top;
+                if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                    const x = e.clientX - rect.left - panX;
+                    const y = e.clientY - rect.top - panY;
                     spawnDevice(dragType, x, y);
                 }
                 ghostEl.remove(); ghostEl = null; dragType = null;
             }
-            
             if (dragInfo) dragInfo = null; 
         });
 
@@ -769,20 +598,36 @@
 
         window.toggleSTP = () => {
             stpEnabled = !stpEnabled; const btn = document.getElementById('btn-stp');
-            if (stpEnabled) {
-                btn.innerHTML = '<span>STP: ON</span>'; btn.classList.replace('bg-slate-800', 'bg-emerald-600'); btn.classList.replace('text-slate-300', 'text-white'); btn.classList.replace('border-slate-700', 'border-emerald-500'); btn.classList.replace('hover:bg-slate-700', 'hover:bg-emerald-500');
-                calculateSTP();
-            } else {
-                btn.innerHTML = '<span>STP: OFF</span>'; btn.classList.replace('bg-emerald-600', 'bg-slate-800'); btn.classList.replace('text-white', 'text-slate-300'); btn.classList.replace('border-emerald-500', 'border-slate-700'); btn.classList.replace('hover:bg-emerald-500', 'hover:bg-slate-700');
-                Object.values(devices).forEach(d => { if (d.type === 'Switch') d.ports.forEach(p => { if (p.connectedLink && p.adminState !== 'down') p.stpState = 'forwarding'; }); });
-                flushMacTables(); renderLinks(); if (selectedDeviceId) updatePropertiesPanel();
-            }
+            if (stpEnabled) { btn.innerHTML = '<span>STP: ON</span>'; btn.classList.replace('bg-slate-800', 'bg-emerald-600'); btn.classList.replace('text-slate-300', 'text-white'); btn.classList.replace('border-slate-700', 'border-emerald-500'); btn.classList.replace('hover:bg-slate-700', 'hover:bg-emerald-500'); calculateSTP(); } 
+            else { btn.innerHTML = '<span>STP: OFF</span>'; btn.classList.replace('bg-emerald-600', 'bg-slate-800'); btn.classList.replace('text-white', 'text-slate-300'); btn.classList.replace('border-emerald-500', 'border-slate-700'); btn.classList.replace('hover:bg-emerald-500', 'hover:bg-slate-700'); Object.values(devices).forEach(d => { if (d.type === 'Switch') d.ports.forEach(p => { if (p.connectedLink && p.adminState !== 'down') p.stpState = 'forwarding'; }); }); flushMacTables(); renderLinks(); if (selectedDeviceId) updatePropertiesPanel(); }
         };
 
         window.toggleConsole = () => {
             const output = document.getElementById('console-output'); const chevron = document.getElementById('console-chevron');
             output.classList.toggle('hidden'); chevron.classList.toggle('-rotate-90');
             if (!output.classList.contains('hidden')) output.scrollTop = output.scrollHeight;
+        };
+        
+        // VR OPTIMISED: Mixed Reality Passthrough Toggle
+        window.toggleMRMode = () => {
+            isMRMode = !isMRMode;
+            const btn = document.getElementById('btn-mr');
+            const sidebar = document.getElementById('sidebar');
+            if (isMRMode) {
+                document.body.classList.add('mr-mode');
+                WORKSPACE.classList.add('mr-mode');
+                sidebar.classList.replace('bg-slate-900', 'bg-slate-900/80'); // Slight transparency to tools
+                btn.classList.add('text-purple-400', 'bg-slate-800');
+                btn.classList.remove('text-slate-400');
+                log("Mixed Reality Passthrough Enabled.", "success");
+            } else {
+                document.body.classList.remove('mr-mode');
+                WORKSPACE.classList.remove('mr-mode');
+                sidebar.classList.replace('bg-slate-900/80', 'bg-slate-900');
+                btn.classList.remove('text-purple-400', 'bg-slate-800');
+                btn.classList.add('text-slate-400');
+                log("Mixed Reality Passthrough Disabled.", "info");
+            }
         };
 
         function setMode(mode) {
@@ -803,59 +648,52 @@
             else if (dev.type === 'Router') availablePorts = Object.values(dev.interfaces).filter(i => !i.connectedLink).map(i => ({ id: i.id, label: i.id }));
             
             if (availablePorts.length === 0) return;
-
             const selector = document.getElementById('port-selector');
             selector.innerHTML = `<div class="px-4 py-2 border-b border-slate-700 font-bold text-slate-400 text-[10px] uppercase tracking-wider bg-slate-800">Select Port</div>`;
-            
             availablePorts.forEach(port => {
-                const btn = document.createElement('div');
-                btn.className = 'px-6 py-3 hover:bg-blue-600 cursor-pointer transition-colors';
-                btn.textContent = port.label;
-                btn.onclick = (e) => { e.stopPropagation(); selector.classList.add('hidden'); callback(port.id); };
+                const btn = document.createElement('div'); btn.className = 'px-6 py-3 hover:bg-blue-600 cursor-pointer transition-colors'; btn.textContent = port.label;
+                btn.onclick = (e) => { e.stopPropagation(); selector.classList.add('hidden'); callback(port.id); triggerHaptic(0.2, 20); };
                 selector.appendChild(btn);
             });
-            selector.style.left = `${x}px`; selector.style.top = `${y}px`; selector.classList.remove('hidden');
+            selector.style.left = `${x + panX}px`; selector.style.top = `${y + panY}px`; selector.classList.remove('hidden');
         }
 
         function hidePortSelector() { const selector = document.getElementById('port-selector'); if (selector) selector.classList.add('hidden'); }
 
         WORKSPACE.addEventListener('pointerup', (e) => {
             if (ghostEl || dragInfo || activePanel) return; 
-
-            if (e.target.closest('.device-node') || e.target.closest('.text-label-node') || 
-                e.target.closest('#port-selector') || e.target.closest('#floating-console') || 
-                e.target.closest('#floating-ping') || e.target.closest('#floating-properties') || 
-                e.target.closest('#bottom-toolbar')) return; 
             
-            if (currentMode === 'addText') {
-                const rect = WORKSPACE.getBoundingClientRect();
-                const lblId = generateId();
-                labels[lblId] = { id: lblId, text: 'New Text', x: e.clientX - rect.left, y: e.clientY - rect.top };
-                setMode('select'); selectedDeviceId = null; selectedLabelId = lblId;
-                updatePropertiesPanel(); renderNodes();
+            // Ignore clicks if we just finished panning
+            if (totalPanDelta > 15) {
+                totalPanDelta = 0;
                 return;
             }
 
-            hidePortSelector(); selectedDeviceId = null; selectedLabelId = null;
-            updatePropertiesPanel(); renderNodes();
+            if (e.target.closest('.device-node') || e.target.closest('.text-label-node') || e.target.closest('#port-selector') || e.target.closest('#floating-console') || e.target.closest('#floating-ping') || e.target.closest('#floating-properties') || e.target.closest('#bottom-toolbar')) return; 
+            
+            if (currentMode === 'addText') {
+                const rect = WORKSPACE.getBoundingClientRect(); const lblId = generateId();
+                labels[lblId] = { id: lblId, text: 'New Text', x: e.clientX - rect.left - panX, y: e.clientY - rect.top - panY };
+                setMode('select'); selectedDeviceId = null; selectedLabelId = lblId; updatePropertiesPanel(); renderNodes(); return;
+            }
+
+            hidePortSelector(); selectedDeviceId = null; selectedLabelId = null; updatePropertiesPanel(); renderNodes();
         });
 
         function handleNodeClick(e, id, type = 'Device') {
             if (currentMode === 'select') {
-                if (type === 'Device') { selectedDeviceId = id; selectedLabelId = null; } 
-                else if (type === 'Label') { selectedLabelId = id; selectedDeviceId = null; }
+                if (type === 'Device') { selectedDeviceId = id; selectedLabelId = null; } else if (type === 'Label') { selectedLabelId = id; selectedDeviceId = null; }
+                triggerHaptic(0.1, 20); // Small feedback on select
                 updatePropertiesPanel(); renderNodes();
             } else if (currentMode === 'addCable' && type === 'Device') {
-                const dev = devices[id]; const rect = WORKSPACE.getBoundingClientRect();
-                if (dev.type === 'Laptop') return; 
-
+                const dev = devices[id]; const rect = WORKSPACE.getBoundingClientRect(); if (dev.type === 'Laptop') return; 
                 if (!pendingCableSource) {
                     if (dev.type === 'PC') { if (dev.port) return; setPendingSource(id, 1); } 
-                    else showPortSelector(id, e.clientX - rect.left, e.clientY - rect.top, (portId) => setPendingSource(id, portId));
+                    else showPortSelector(id, dev.x, dev.y, (portId) => setPendingSource(id, portId));
                 } else {
                     if (pendingCableSource === id) { pendingCableSource = null; pendingCableSourcePort = null; setMode('select'); renderNodes(); renderLinks(); return; }
                     if (dev.type === 'PC') { if (dev.port) return; finalizeLink(id, 1); } 
-                    else showPortSelector(id, e.clientX - rect.left, e.clientY - rect.top, (portId) => finalizeLink(id, portId));
+                    else showPortSelector(id, dev.x, dev.y, (portId) => finalizeLink(id, portId));
                 }
             }
         }
@@ -873,29 +711,17 @@
             flushMacTables();
             if (devA.type === 'Router') { devA.updateConnectedRoutes(); devA.ripBroadcastCount = 0; }
             if (devB.type === 'Router') { devB.updateConnectedRoutes(); devB.ripBroadcastCount = 0; }
-
+            
+            triggerHaptic(0.6, 60); // Solid click when cable connects
             if (stpEnabled) calculateSTP(); else { renderLinks(); if (selectedDeviceId) updatePropertiesPanel(); }
         }
 
         window.deleteLink = (linkId, skipUpdate = false) => {
             const l = links[linkId]; if (!l) return;
             const devA = devices[l.source]; const devB = devices[l.target];
-            
-            if (devA) {
-                if (devA.type === 'PC' || devA.type === 'Laptop') { devA.port = null; if (devA.type === 'Laptop') devA.connectedApId = null; }
-                else if (devA.type === 'Router') { devA.interfaces[l.sourcePort].connectedLink = null; devA.updateConnectedRoutes(); devA.ripBroadcastCount = 0; }
-                else if (devA.type === 'AP' && l.isWireless) {}
-                else { const p = devA.ports.find(p => p.id === l.sourcePort); if(p) { p.connectedLink = null; p.stpState = 'forwarding'; } }
-            }
-
-            if (devB) {
-                if (devB.type === 'PC' || devB.type === 'Laptop') { devB.port = null; if (devB.type === 'Laptop') devB.connectedApId = null; }
-                else if (devB.type === 'Router') { devB.interfaces[l.targetPort].connectedLink = null; devB.updateConnectedRoutes(); devB.ripBroadcastCount = 0; }
-                else if (devB.type === 'AP' && l.isWireless) {}
-                else { const p = devB.ports.find(p => p.id === l.targetPort); if(p) { p.connectedLink = null; p.stpState = 'forwarding'; } }
-            }
-
-            delete links[linkId];
+            if (devA) { if (devA.type === 'PC' || devA.type === 'Laptop') { devA.port = null; if (devA.type === 'Laptop') devA.connectedApId = null; } else if (devA.type === 'Router') { devA.interfaces[l.sourcePort].connectedLink = null; devA.updateConnectedRoutes(); devA.ripBroadcastCount = 0; } else if (devA.type === 'AP' && l.isWireless) {} else { const p = devA.ports.find(p => p.id === l.sourcePort); if(p) { p.connectedLink = null; p.stpState = 'forwarding'; } } }
+            if (devB) { if (devB.type === 'PC' || devB.type === 'Laptop') { devB.port = null; if (devB.type === 'Laptop') devB.connectedApId = null; } else if (devB.type === 'Router') { devB.interfaces[l.targetPort].connectedLink = null; devB.updateConnectedRoutes(); devB.ripBroadcastCount = 0; } else if (devB.type === 'AP' && l.isWireless) {} else { const p = devB.ports.find(p => p.id === l.targetPort); if(p) { p.connectedLink = null; p.stpState = 'forwarding'; } } }
+            delete links[linkId]; triggerHaptic(0.4, 30);
             if (!skipUpdate) { flushMacTables(); if (stpEnabled) calculateSTP(); else { renderLinks(); if(selectedDeviceId) updatePropertiesPanel(); } }
         }
 
@@ -905,11 +731,10 @@
                 const linksToRemove = Object.keys(links).filter(lId => links[lId].source === dev.id || links[lId].target === dev.id);
                 linksToRemove.forEach(lId => window.deleteLink(lId, true));
                 delete devices[dev.id]; selectedDeviceId = null;
-                flushMacTables(); window.evaluateWifiConnections(); 
-                renderNodes(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel();
+                flushMacTables(); window.evaluateWifiConnections(); renderNodes(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel();
+                triggerHaptic(0.5, 50);
             } else if (selectedLabelId) {
-                delete labels[selectedLabelId]; selectedLabelId = null;
-                renderNodes(); updatePropertiesPanel();
+                delete labels[selectedLabelId]; selectedLabelId = null; renderNodes(); updatePropertiesPanel();
             }
         }
 
@@ -926,23 +751,13 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    const data = JSON.parse(e.target.result);
-                    devices = {};
-                    for (let id in data.devices) {
-                        const d = data.devices[id]; let instance;
-                        if (d.type === 'PC') instance = new PC(d.x, d.y);
-                        else if (d.type === 'Laptop') instance = new Laptop(d.x, d.y);
-                        else if (d.type === 'Switch') instance = new Switch(d.x, d.y);
-                        else if (d.type === 'Router') instance = new Router(d.x, d.y);
-                        else if (d.type === 'AP') instance = new AccessPoint(d.x, d.y);
-                        Object.assign(instance, d); devices[id] = instance;
-                    }
-                    links = data.links || {}; labels = data.labels || {};
-                    deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1, ...(data.deviceCounter || {}) };
+                    const data = JSON.parse(e.target.result); devices = {};
+                    for (let id in data.devices) { const d = data.devices[id]; let instance; if (d.type === 'PC') instance = new PC(d.x, d.y); else if (d.type === 'Laptop') instance = new Laptop(d.x, d.y); else if (d.type === 'Switch') instance = new Switch(d.x, d.y); else if (d.type === 'Router') instance = new Router(d.x, d.y); else if (d.type === 'AP') instance = new AccessPoint(d.x, d.y); Object.assign(instance, d); devices[id] = instance; }
+                    links = data.links || {}; labels = data.labels || {}; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1, ...(data.deviceCounter || {}) };
                     if (data.stpEnabled !== undefined && data.stpEnabled !== stpEnabled) toggleSTP(); 
-                    
                     selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null;
                     flushMacTables(); renderNodes(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel();
+                    panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate3d(0px, 0px, 0)`; WORKSPACE.style.backgroundPosition = `0px 0px`;
                 } catch (err) {}
             };
             reader.readAsText(file); event.target.value = ''; 
@@ -950,42 +765,22 @@
 
         // --- Rendering ---
         function updatePingDropdown() {
-            const sourceSelect = document.getElementById('ping-source');
-            const targetSelect = document.getElementById('ping-target');
+            const sourceSelect = document.getElementById('ping-source'); const targetSelect = document.getElementById('ping-target');
             if (!sourceSelect || !targetSelect) return;
-            
-            const currentSourceVal = sourceSelect.value;
-            const currentTargetVal = targetSelect.value;
-            
-            sourceSelect.innerHTML = '<option value="">Select Source...</option>';
-            targetSelect.innerHTML = '<option value="">Select Destination...</option>';
+            const currentSourceVal = sourceSelect.value; const currentTargetVal = targetSelect.value;
+            sourceSelect.innerHTML = '<option value="">Select Source...</option>'; targetSelect.innerHTML = '<option value="">Select Destination...</option>';
             
             for (let id in devices) {
                 const dev = devices[id];
                 if (dev.type === 'PC' || dev.type === 'Laptop') {
-                    const optSource = document.createElement('option');
-                    optSource.value = id; optSource.textContent = dev.name;
-                    sourceSelect.appendChild(optSource);
-                    
-                    const optTarget = document.createElement('option');
-                    optTarget.value = dev.ip; optTarget.textContent = `${dev.name} (${dev.ip})`;
-                    targetSelect.appendChild(optTarget);
+                    const optSource = document.createElement('option'); optSource.value = id; optSource.textContent = dev.name; sourceSelect.appendChild(optSource);
+                    const optTarget = document.createElement('option'); optTarget.value = dev.ip; optTarget.textContent = `${dev.name} (${dev.ip})`; targetSelect.appendChild(optTarget);
                 } else if (dev.type === 'Router') {
-                    Object.values(dev.interfaces).forEach(iface => {
-                        if (iface.ip !== '0.0.0.0') {
-                            const optTarget = document.createElement('option');
-                            optTarget.value = iface.ip; optTarget.textContent = `${dev.name} ${iface.id} (${iface.ip})`;
-                            targetSelect.appendChild(optTarget);
-                        }
-                    });
+                    Object.values(dev.interfaces).forEach(iface => { if (iface.ip !== '0.0.0.0') { const optTarget = document.createElement('option'); optTarget.value = iface.ip; optTarget.textContent = `${dev.name} ${iface.id} (${iface.ip})`; targetSelect.appendChild(optTarget); } });
                 }
             }
             if (devices[currentSourceVal]) sourceSelect.value = currentSourceVal;
-            
-            let targetExists = false;
-            for (let i = 0; i < targetSelect.options.length; i++) {
-                if (targetSelect.options[i].value === currentTargetVal) { targetExists = true; break; }
-            }
+            let targetExists = false; for (let i = 0; i < targetSelect.options.length; i++) { if (targetSelect.options[i].value === currentTargetVal) { targetExists = true; break; } }
             if (targetExists && currentTargetVal !== '') targetSelect.value = currentTargetVal;
         }
 
@@ -995,8 +790,7 @@
                 const dev = devices[id];
                 const el = document.createElement('div');
                 el.className = `device-node absolute pointer-events-auto flex flex-col items-center justify-center w-32 h-32 -ml-16 -mt-16 cursor-pointer touch-none ${id === selectedDeviceId ? 'selected-node' : ''} ${id === pendingCableSource ? 'pending-connection' : ''}`;
-                el.style.left = `${dev.x}px`; el.style.top = `${dev.y}px`; el.style.isolation = 'isolate'; 
-                el.setAttribute('data-id', id);
+                el.style.left = `${dev.x}px`; el.style.top = `${dev.y}px`; el.style.isolation = 'isolate'; el.setAttribute('data-id', id);
 
                 if (dev.type === 'AP') {
                     const radius = document.createElement('div'); const size = dev.band === '2.4' ? 700 : 400;
@@ -1008,12 +802,7 @@
 
                 const iconDiv = document.createElement('div');
                 iconDiv.className = `node-icon w-16 h-16 rounded-xl flex items-center justify-center shadow-md border ${dev.type === 'PC' || dev.type === 'Laptop' ? 'bg-white border-slate-300 text-slate-600' : 'bg-slate-800 border-slate-900 text-white'}`;
-                
-                if (dev.type === 'PC') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>`;
-                else if (dev.type === 'Laptop') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg>`;
-                else if (dev.type === 'Router') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>`;
-                else if (dev.type === 'AP') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>`;
-                else iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>`;
+                if (dev.type === 'PC') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>`; else if (dev.type === 'Laptop') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg>`; else if (dev.type === 'Router') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>`; else if (dev.type === 'AP') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>`; else iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>`;
 
                 const labelDiv = document.createElement('div');
                 labelDiv.className = 'text-sm font-semibold mt-1 text-slate-700 bg-white/90 px-2 py-0.5 rounded shadow-sm';
@@ -1034,7 +823,7 @@
                 el.addEventListener('pointerdown', (e) => {
                     if (currentMode !== 'select') return;
                     e.stopPropagation();
-                    dragInfo = { id, type: 'Device', offsetX: e.clientX - dev.x, offsetY: e.clientY - dev.y };
+                    dragInfo = { id, type: 'Device', offsetX: e.clientX - dev.x - panX, offsetY: e.clientY - dev.y - panY };
                     dragStartCoords = { x: e.clientX, y: e.clientY };
                     el.setPointerCapture(e.pointerId);
                 });
@@ -1059,7 +848,7 @@
                 el.addEventListener('pointerdown', (e) => {
                     if (currentMode !== 'select') return;
                     e.stopPropagation();
-                    dragInfo = { id, type: 'Label', offsetX: e.clientX - lbl.x, offsetY: e.clientY - lbl.y };
+                    dragInfo = { id, type: 'Label', offsetX: e.clientX - lbl.x - panX, offsetY: e.clientY - lbl.y - panY };
                     dragStartCoords = { x: e.clientX, y: e.clientY };
                     el.setPointerCapture(e.pointerId);
                 });
@@ -1076,71 +865,45 @@
         }
 
         function renderLinks() {
-            CABLES_CONTAINER.innerHTML = '';
-            const linkGroups = {};
-            for (let linkId in links) {
-                const l = links[linkId]; const pairId = [l.source, l.target].sort().join('_');
-                if (!linkGroups[pairId]) linkGroups[pairId] = []; linkGroups[pairId].push(l);
-            }
+            CABLES_CONTAINER.innerHTML = ''; const linkGroups = {};
+            for (let linkId in links) { const l = links[linkId]; const pairId = [l.source, l.target].sort().join('_'); if (!linkGroups[pairId]) linkGroups[pairId] = []; linkGroups[pairId].push(l); }
 
             for (let pairId in linkGroups) {
                 const group = linkGroups[pairId]; const count = group.length;
                 group.forEach((link, index) => {
                     const devA = devices[link.source]; const devB = devices[link.target];
                     if (link.isWireless) {
-                        const path = document.createElementNS(SVG_NS, 'path');
-                        path.setAttribute('d', `M ${devA.x} ${devA.y} L ${devB.x} ${devB.y}`);
+                        const path = document.createElementNS(SVG_NS, 'path'); path.setAttribute('d', `M ${devA.x} ${devA.y} L ${devB.x} ${devB.y}`);
                         path.setAttribute('fill', 'none'); path.setAttribute('stroke', '#38bdf8'); path.setAttribute('stroke-width', '2'); path.setAttribute('stroke-dasharray', '5, 5');
-                        CABLES_CONTAINER.appendChild(path);
-                        link._cx = (devA.x + devB.x) / 2; link._cy = (devA.y + devB.y) / 2;
-                        return; 
+                        CABLES_CONTAINER.appendChild(path); link._cx = (devA.x + devB.x) / 2; link._cy = (devA.y + devB.y) / 2; return; 
                     }
 
                     const isSwitchToSwitch = devA.type === 'Switch' && devB.type === 'Switch';
-                    const dx = devB.x - devA.x; const dy = devB.y - devA.y; const len = Math.sqrt(dx*dx + dy*dy) || 1;
-                    const nx = -dy / len; const ny = dx / len;
-                    const offsetDist = count === 1 ? 0 : (index - (count - 1) / 2) * 60;
-                    const mx = (devA.x + devB.x) / 2; const my = (devA.y + devB.y) / 2;
-                    const cx = mx + nx * offsetDist; const cy = my + ny * offsetDist;
-                    link._cx = cx; link._cy = cy;
+                    const dx = devB.x - devA.x; const dy = devB.y - devA.y; const len = Math.sqrt(dx*dx + dy*dy) || 1; const nx = -dy / len; const ny = dx / len;
+                    const offsetDist = count === 1 ? 0 : (index - (count - 1) / 2) * 60; const mx = (devA.x + devB.x) / 2; const my = (devA.y + devB.y) / 2;
+                    const cx = mx + nx * offsetDist; const cy = my + ny * offsetDist; link._cx = cx; link._cy = cy;
 
-                    const path = document.createElementNS(SVG_NS, 'path');
-                    const pathD = `M ${devA.x} ${devA.y} Q ${cx} ${cy} ${devB.x} ${devB.y}`;
+                    const path = document.createElementNS(SVG_NS, 'path'); const pathD = `M ${devA.x} ${devA.y} Q ${cx} ${cy} ${devB.x} ${devB.y}`;
                     path.setAttribute('d', pathD); path.setAttribute('fill', 'none'); path.setAttribute('stroke', isSwitchToSwitch ? '#64748b' : '#94a3b8'); path.setAttribute('stroke-width', isSwitchToSwitch ? '4' : '3');
                     CABLES_CONTAINER.appendChild(path);
 
                     const clickPath = document.createElementNS(SVG_NS, 'path');
-                    clickPath.setAttribute('d', pathD); clickPath.setAttribute('fill', 'none'); clickPath.setAttribute('stroke', 'transparent');
-                    clickPath.setAttribute('stroke-width', '32'); clickPath.setAttribute('style', 'cursor: pointer; pointer-events: auto; touch-action: none;');
-                    
+                    clickPath.setAttribute('d', pathD); clickPath.setAttribute('fill', 'none'); clickPath.setAttribute('stroke', 'transparent'); clickPath.setAttribute('stroke-width', '32'); clickPath.setAttribute('style', 'cursor: pointer; pointer-events: auto; touch-action: none;');
                     let lastTap = 0;
-                    clickPath.addEventListener('pointerup', (e) => {
-                        e.stopPropagation(); const now = Date.now();
-                        if (now - lastTap < 600) { window.deleteLink(link.id); lastTap = 0; } else lastTap = now;
-                    });
-                    const linkTitle = document.createElementNS(SVG_NS, 'title'); linkTitle.textContent = "Double-trigger to delete cable"; clickPath.appendChild(linkTitle);
-                    CABLES_CONTAINER.appendChild(clickPath);
+                    clickPath.addEventListener('pointerup', (e) => { e.stopPropagation(); const now = Date.now(); if (now - lastTap < 600) { window.deleteLink(link.id); lastTap = 0; } else lastTap = now; });
+                    const linkTitle = document.createElementNS(SVG_NS, 'title'); linkTitle.textContent = "Double-trigger to delete cable"; clickPath.appendChild(linkTitle); CABLES_CONTAINER.appendChild(clickPath);
 
                     const getPoint = (t) => { const mt = 1 - t; return { x: mt*mt*devA.x + 2*mt*t*cx + t*t*devB.x, y: mt*mt*devA.y + 2*mt*t*cy + t*t*devB.y }; };
 
                     if (len > 120) {
                         const tA = Math.min(0.4, 65 / len); const tB = 1 - Math.min(0.4, 65 / len);
-                        if (devA.type === 'Switch' || devA.type === 'Router' || devA.type === 'AP') {
-                            const pA = (devA.type === 'Switch' || devA.type === 'AP') ? devA.ports.find(p => p.id === link.sourcePort) : devA.interfaces[link.sourcePort];
-                            const pt = getPoint(tA); drawPortLabel(pt.x, pt.y, (devA.type === 'Switch' || devA.type === 'AP') ? `Fa0/${link.sourcePort}` : link.sourcePort, devA.id, link.sourcePort, pA ? pA.adminState : 'up');
-                        }
-                        if (devB.type === 'Switch' || devB.type === 'Router' || devB.type === 'AP') {
-                            const pB = (devB.type === 'Switch' || devB.type === 'AP') ? devB.ports.find(p => p.id === link.targetPort) : devB.interfaces[link.targetPort];
-                            const pt = getPoint(tB); drawPortLabel(pt.x, pt.y, (devB.type === 'Switch' || devB.type === 'AP') ? `Fa0/${link.targetPort}` : link.targetPort, devB.id, link.targetPort, pB ? pB.adminState : 'up');
-                        }
+                        if (devA.type === 'Switch' || devA.type === 'Router' || devA.type === 'AP') { const pA = (devA.type === 'Switch' || devA.type === 'AP') ? devA.ports.find(p => p.id === link.sourcePort) : devA.interfaces[link.sourcePort]; const pt = getPoint(tA); drawPortLabel(pt.x, pt.y, (devA.type === 'Switch' || devA.type === 'AP') ? `Fa0/${link.sourcePort}` : link.sourcePort, devA.id, link.sourcePort, pA ? pA.adminState : 'up'); }
+                        if (devB.type === 'Switch' || devB.type === 'Router' || devB.type === 'AP') { const pB = (devB.type === 'Switch' || devB.type === 'AP') ? devB.ports.find(p => p.id === link.targetPort) : devB.interfaces[link.targetPort]; const pt = getPoint(tB); drawPortLabel(pt.x, pt.y, (devB.type === 'Switch' || devB.type === 'AP') ? `Fa0/${link.targetPort}` : link.targetPort, devB.id, link.targetPort, pB ? pB.adminState : 'up'); }
                     }
 
-                    const tLightA = Math.min(0.45, 30 / len); const tLightB = 1 - Math.min(0.45, 30 / len);
-                    const ptA = getPoint(tLightA); const ptB = getPoint(tLightB);
-                    let stateA = 'forwarding', adminA = 'up';
-                    if (devA.type === 'Switch' || devA.type === 'AP') { const pA = devA.ports.find(p => p.id === link.sourcePort); if (pA) { stateA = pA.stpState; adminA = pA.adminState; } } else if (devA.type === 'Router') { const pA = devA.interfaces[link.sourcePort]; if (pA) { stateA = pA.connectedLink ? 'forwarding' : 'down'; adminA = pA.adminState; } }
-                    let stateB = 'forwarding', adminB = 'up';
-                    if (devB.type === 'Switch' || devB.type === 'AP') { const pB = devB.ports.find(p => p.id === link.targetPort); if (pB) { stateB = pB.stpState; adminB = pB.adminState; } } else if (devB.type === 'Router') { const pB = devB.interfaces[link.targetPort]; if (pB) { stateB = pB.connectedLink ? 'forwarding' : 'down'; adminB = pB.adminState; } }
+                    const tLightA = Math.min(0.45, 30 / len); const tLightB = 1 - Math.min(0.45, 30 / len); const ptA = getPoint(tLightA); const ptB = getPoint(tLightB);
+                    let stateA = 'forwarding', adminA = 'up'; if (devA.type === 'Switch' || devA.type === 'AP') { const pA = devA.ports.find(p => p.id === link.sourcePort); if (pA) { stateA = pA.stpState; adminA = pA.adminState; } } else if (devA.type === 'Router') { const pA = devA.interfaces[link.sourcePort]; if (pA) { stateA = pA.connectedLink ? 'forwarding' : 'down'; adminA = pA.adminState; } }
+                    let stateB = 'forwarding', adminB = 'up'; if (devB.type === 'Switch' || devB.type === 'AP') { const pB = devB.ports.find(p => p.id === link.targetPort); if (pB) { stateB = pB.stpState; adminB = pB.adminState; } } else if (devB.type === 'Router') { const pB = devB.interfaces[link.targetPort]; if (pB) { stateB = pB.connectedLink ? 'forwarding' : 'down'; adminB = pB.adminState; } }
 
                     drawPortLight(ptA.x, ptA.y, adminA === 'down' ? '#94a3b8' : (stateA === 'blocking' ? '#ef4444' : '#22c55e'));
                     drawPortLight(ptB.x, ptB.y, adminB === 'down' ? '#94a3b8' : (stateB === 'blocking' ? '#ef4444' : '#22c55e'));
@@ -1157,31 +920,24 @@
         }
 
         function drawPortLight(x, y, color) {
-            const circle = document.createElementNS(SVG_NS, 'circle');
-            circle.setAttribute('cx', x); circle.setAttribute('cy', y); circle.setAttribute('r', '6');
-            circle.setAttribute('fill', color); circle.setAttribute('style', `filter: drop-shadow(0 0 4px ${color})`);
-            CABLES_CONTAINER.appendChild(circle);
+            const circle = document.createElementNS(SVG_NS, 'circle'); circle.setAttribute('cx', x); circle.setAttribute('cy', y); circle.setAttribute('r', '6');
+            circle.setAttribute('fill', color); circle.setAttribute('style', `filter: drop-shadow(0 0 4px ${color})`); CABLES_CONTAINER.appendChild(circle);
         }
 
         function drawPortLabel(x, y, text, devId, portId, adminState) {
-            const label = document.createElementNS(SVG_NS, 'text');
-            label.setAttribute('x', x); label.setAttribute('y', y); label.setAttribute('font-size', '12');
-            label.setAttribute('fill', adminState === 'down' ? '#94a3b8' : '#1e293b');
-            if (adminState === 'down') label.setAttribute('text-decoration', 'line-through');
+            const label = document.createElementNS(SVG_NS, 'text'); label.setAttribute('x', x); label.setAttribute('y', y); label.setAttribute('font-size', '12');
+            label.setAttribute('fill', adminState === 'down' ? '#94a3b8' : '#1e293b'); if (adminState === 'down') label.setAttribute('text-decoration', 'line-through');
             label.setAttribute('font-family', 'monospace'); label.setAttribute('font-weight', 'bold'); label.setAttribute('text-anchor', 'middle'); label.setAttribute('dominant-baseline', 'middle');
             label.setAttribute('style', 'cursor: pointer; pointer-events: auto; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; stroke-linecap: round; stroke-linejoin: round;');
-            label.textContent = text;
-            if (devId && portId) label.addEventListener('pointerup', (e) => { e.stopPropagation(); togglePortStatus(devId, portId); });
+            label.textContent = text; if (devId && portId) label.addEventListener('pointerup', (e) => { e.stopPropagation(); togglePortStatus(devId, portId); });
             CABLES_CONTAINER.appendChild(label);
         }
 
         window.togglePortStatus = (devId, portId) => {
-            const dev = devices[devId]; if (!dev) return;
-            let p = null; if (dev.type === 'Switch' || dev.type === 'AP') p = dev.ports.find(pt => pt.id === portId); else if (dev.type === 'Router') p = dev.interfaces[portId];
-            if (!p) return;
+            const dev = devices[devId]; if (!dev) return; let p = null; if (dev.type === 'Switch' || dev.type === 'AP') p = dev.ports.find(pt => pt.id === portId); else if (dev.type === 'Router') p = dev.interfaces[portId]; if (!p) return;
             p.adminState = p.adminState === 'up' ? 'down' : 'up';
             if (dev.type === 'Router') { dev.updateConnectedRoutes(); dev.ripBroadcastCount = 0; }
-            flushMacTables();
+            flushMacTables(); triggerHaptic(0.2, 30);
             if (stpEnabled) calculateSTP(); else { renderLinks(); if (selectedDeviceId === devId) updatePropertiesPanel(); }
         };
 
@@ -1217,48 +973,24 @@
         }
 
         window.updateLabelProp = (prop, val) => { if (selectedLabelId && labels[selectedLabelId]) { labels[selectedLabelId][prop] = val; renderNodes(); } };
-        window.savePCSettings = (id) => { const dev = devices[id]; if (!dev || (dev.type !== 'PC' && dev.type !== 'Laptop')) return; dev.ip = document.getElementById('prop-ip').value; dev.subnet = document.getElementById('prop-sub').value; dev.gateway = document.getElementById('prop-gw').value; if (dev.type === 'Laptop') { dev.ssid = document.getElementById('prop-wifi-ssid').value; dev.password = document.getElementById('prop-wifi-pass').value; window.evaluateWifiConnections(); } const btn = document.getElementById('btn-save-pc'); if (btn) { btn.textContent = 'Saved Successfully!'; btn.classList.replace('bg-blue-600', 'bg-emerald-500'); btn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-400'); setTimeout(() => { if (document.getElementById('btn-save-pc') === btn) { btn.textContent = 'Save Settings'; btn.classList.replace('bg-emerald-500', 'bg-blue-600'); btn.classList.replace('hover:bg-emerald-400', 'hover:bg-blue-500'); } }, 1500); } log(`[${dev.name}] Configuration saved.`); updatePingDropdown(); };
-        window.saveAPSettings = (id) => { const dev = devices[id]; if (!dev || dev.type !== 'AP') return; dev.ssid = document.getElementById('prop-ssid').value; dev.band = document.getElementById('prop-band').value; dev.security = document.getElementById('prop-sec').value; dev.password = document.getElementById('prop-pass').value; window.evaluateWifiConnections(); const btn = document.getElementById('btn-save-ap'); if (btn) { btn.textContent = 'Saved Successfully!'; btn.classList.replace('bg-blue-600', 'bg-emerald-500'); btn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-400'); setTimeout(() => { if (document.getElementById('btn-save-ap') === btn) { btn.textContent = 'Save AP Config'; btn.classList.replace('bg-emerald-500', 'bg-blue-600'); btn.classList.replace('hover:bg-emerald-400', 'hover:bg-blue-500'); } }, 1500); } log(`[${dev.name}] AP configuration saved.`); renderNodes(); };
+        window.savePCSettings = (id) => { const dev = devices[id]; if (!dev || (dev.type !== 'PC' && dev.type !== 'Laptop')) return; dev.ip = document.getElementById('prop-ip').value; dev.subnet = document.getElementById('prop-sub').value; dev.gateway = document.getElementById('prop-gw').value; if (dev.type === 'Laptop') { dev.ssid = document.getElementById('prop-wifi-ssid').value; dev.password = document.getElementById('prop-wifi-pass').value; window.evaluateWifiConnections(); } triggerHaptic(0.3, 30); const btn = document.getElementById('btn-save-pc'); if (btn) { btn.textContent = 'Saved Successfully!'; btn.classList.replace('bg-blue-600', 'bg-emerald-500'); btn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-400'); setTimeout(() => { if (document.getElementById('btn-save-pc') === btn) { btn.textContent = 'Save Settings'; btn.classList.replace('bg-emerald-500', 'bg-blue-600'); btn.classList.replace('hover:bg-emerald-400', 'hover:bg-blue-500'); } }, 1500); } log(`[${dev.name}] Configuration saved.`); updatePingDropdown(); };
+        window.saveAPSettings = (id) => { const dev = devices[id]; if (!dev || dev.type !== 'AP') return; dev.ssid = document.getElementById('prop-ssid').value; dev.band = document.getElementById('prop-band').value; dev.security = document.getElementById('prop-sec').value; dev.password = document.getElementById('prop-pass').value; window.evaluateWifiConnections(); triggerHaptic(0.3, 30); const btn = document.getElementById('btn-save-ap'); if (btn) { btn.textContent = 'Saved Successfully!'; btn.classList.replace('bg-blue-600', 'bg-emerald-500'); btn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-400'); setTimeout(() => { if (document.getElementById('btn-save-ap') === btn) { btn.textContent = 'Save AP Config'; btn.classList.replace('bg-emerald-500', 'bg-blue-600'); btn.classList.replace('hover:bg-emerald-400', 'hover:bg-blue-500'); } }, 1500); } log(`[${dev.name}] AP configuration saved.`); renderNodes(); };
         window.saveRouterSettings = (id) => {
             const dev = devices[id]; if (!dev || dev.type !== 'Router') return;
-            Object.values(dev.interfaces).forEach(iface => {
-                const ipInput = document.getElementById(`prop-ip-${iface.id.replace(/\//g,'-')}`);
-                const subInput = document.getElementById(`prop-sub-${iface.id.replace(/\//g,'-')}`);
-                if (ipInput && subInput) { iface.ip = ipInput.value; iface.subnet = subInput.value; }
-            });
-            dev.ripEnabled = document.getElementById('prop-rip').checked;
-            dev.updateConnectedRoutes(); dev.ripBroadcastCount = 0;
-            log(`[${dev.name}] Router configuration saved.`);
-            if (selectedDeviceId === dev.id) updatePropertiesPanel();
-            updatePingDropdown();
-            
-            // Wait for panel to re-render before animating the button
-            const btn = document.getElementById('btn-save-router');
-            if (btn) {
-                btn.textContent = 'Saved Successfully!';
-                btn.classList.replace('bg-blue-600', 'bg-emerald-500');
-                btn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-400');
-                setTimeout(() => {
-                    const currentBtn = document.getElementById('btn-save-router');
-                    if (currentBtn) {
-                        currentBtn.textContent = 'Save Router Config';
-                        currentBtn.classList.replace('bg-emerald-500', 'bg-blue-600');
-                        currentBtn.classList.replace('hover:bg-emerald-400', 'hover:bg-blue-500');
-                    }
-                }, 1500);
-            }
+            Object.values(dev.interfaces).forEach(iface => { const ipInput = document.getElementById(`prop-ip-${iface.id.replace(/\//g,'-')}`); const subInput = document.getElementById(`prop-sub-${iface.id.replace(/\//g,'-')}`); if (ipInput && subInput) { iface.ip = ipInput.value; iface.subnet = subInput.value; } });
+            dev.ripEnabled = document.getElementById('prop-rip').checked; dev.updateConnectedRoutes(); dev.ripBroadcastCount = 0; log(`[${dev.name}] Router configuration saved.`); if (selectedDeviceId === dev.id) updatePropertiesPanel(); updatePingDropdown(); triggerHaptic(0.3, 30);
+            const btn = document.getElementById('btn-save-router'); if (btn) { btn.textContent = 'Saved Successfully!'; btn.classList.replace('bg-blue-600', 'bg-emerald-500'); btn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-400'); setTimeout(() => { const currentBtn = document.getElementById('btn-save-router'); if (currentBtn) { currentBtn.textContent = 'Save Router Config'; currentBtn.classList.replace('bg-emerald-500', 'bg-blue-600'); currentBtn.classList.replace('hover:bg-emerald-400', 'hover:bg-blue-500'); } }, 1500); }
         };
-        window.clearARP = (id) => { devices[id].arpCache = {}; updatePropertiesPanel(); };
-        window.clearMACTable = (id) => { devices[id].macTable = {}; updatePropertiesPanel(); };
+        window.clearARP = (id) => { devices[id].arpCache = {}; updatePropertiesPanel(); triggerHaptic(0.2, 20); };
+        window.clearMACTable = (id) => { devices[id].macTable = {}; updatePropertiesPanel(); triggerHaptic(0.2, 20); };
 
         setInterval(() => { if (selectedDeviceId && devices[selectedDeviceId].type === 'Switch') updatePropertiesPanel(); }, 5000);
         setInterval(() => { Object.values(devices).filter(d => d.type === 'Router' && d.ripEnabled).forEach(router => { router.updateConnectedRoutes(); if (router.routingTable.length === 0) return; router.ripBroadcastCount++; const isSilent = router.ripBroadcastCount > 3; Object.values(router.interfaces).forEach(iface => { if (iface.ip !== '0.0.0.0' && iface.adminState === 'up' && iface.connectedLink) { transmit({ sourceMac: iface.mac, destMac: '01:00:5E:00:00:09', payload: { type: 'RIP_UPDATE', sourceIp: iface.ip, routes: router.routingTable }, ttl: 1, silent: isSilent }, router.id, iface.id); } }); }); }, 10000);
 
         // --- Ping Command Execution ---
         window.executePing = async () => {
-            const sourceId = document.getElementById('ping-source').value; 
-            const targetIp = document.getElementById('ping-target').value;
-            
+            const sourceId = document.getElementById('ping-source').value; const targetIp = document.getElementById('ping-target').value;
+            triggerHaptic(0.2, 20);
             if (!sourceId) { log(`Ping Error: Please select a source PC.`, 'error'); return; }
             if (!targetIp) { log(`Ping Error: Please select a destination device.`, 'error'); return; }
             if (targetIp === '0.0.0.0') { log(`Ping Error: Destination device has no valid IP configured.`, 'error'); return; }
@@ -1279,7 +1011,7 @@
                 for(let i=0; i<100; i++) { await sleep(100); if (arpResolved) break; }
                 document.removeEventListener('arp_resolved', arpHandler);
                 targetMac = pc.arpCache[destIp];
-                if (!targetMac) { log(`[${pc.name}] ARP Request timed out.`, 'error'); return; }
+                if (!targetMac) { log(`[${pc.name}] ARP Request timed out.`, 'error'); triggerHaptic(0.5, 100); return; }
             }
 
             let icmpReplied = false; const icmpHandler = () => icmpReplied = true;
@@ -1287,10 +1019,10 @@
             transmit({ sourceMac: pc.mac, destMac: targetMac, payload: { type: 'ICMP_REQ', sourceIp: pc.ip, targetIp: targetIp } }, pc.id, 1);
             for(let i=0; i<100; i++) { await sleep(100); if (icmpReplied) break; }
             document.removeEventListener('icmp_replied', icmpHandler);
-            if (!icmpReplied) log(`[${pc.name}] Request timed out.`, 'error'); else showSuccessTick(pc.id);
+            if (!icmpReplied) { log(`[${pc.name}] Request timed out.`, 'error'); triggerHaptic(0.5, 100); } else showSuccessTick(pc.id);
         };
 
-        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); };
+        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate3d(0px, 0px, 0)`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
 
         renderNodes();
     </script>
