@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Network Simulator - Quest Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #64748b; border-radius: 4px; }
+        
+        /* VR-Specific Interaction Styles */
+        .node-icon { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); touch-action: none; }
+        
+        /* Aggressive hover for XR Browsers */
+        .device-node:hover .node-icon { 
+            transform: scale(1.15); 
+            box-shadow: 0 0 20px 5px rgba(59, 130, 246, 0.5);
+            border-color: #3b82f6 !important;
+        }
+        
+        .selected-node { filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.9)); }
+        
+        #workspace {
+            background-color: #f8fafc;
+            background-image: radial-gradient(#cbd5e1 1.5px, transparent 1.5px);
+            background-size: 30px 30px;
+            touch-action: none; /* Critical for custom drag */
+        }
+
+        /* Connect Mode Cursor */
+        #workspace.mode-addCable, #workspace.mode-addCable * {
+            cursor: crosshair !important;
+        }
+
+        #workspace.mode-addCable .device-node:hover .node-icon {
+            border-color: #f59e0b !important;
+            box-shadow: 0 0 20px 8px rgba(245, 158, 11, 0.7) !important;
+        }
+
+        /* Prevent system gestures interference */
+        * { -webkit-touch-callout: none; -webkit-user-select: none; }
+        input, textarea { -webkit-user-select: text; user-select: text; }
+
+        /* Smooth UI transitions */
+        .panel-transition { transition: transform 0.3s ease-out, opacity 0.3s ease-out; }
+        
+        /* Sidebar Item - Touch Friendly */
+        .sidebar-item {
+            touch-action: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="h-screen w-full overflow-hidden flex text-slate-800 font-sans select-none bg-slate-950">
+
+    <!-- Sidebar Tools: Increased width for VR targets -->
+    <div class="w-28 bg-slate-900 border-r border-slate-700 flex flex-col items-center py-6 space-y-6 shadow-2xl z-20">
+        <button onclick="setMode('select')" id="btn-select" class="p-4 w-24 flex flex-col items-center rounded-2xl bg-blue-600 text-white hover:bg-blue-500 transition-all shadow-lg active:scale-90" title="Select / Move">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></svg>
+            <span class="text-[11px] font-bold uppercase tracking-wider">Select</span>
+        </button>
+        
+        <button onclick="setMode('addCable')" id="btn-addCable" class="p-4 w-24 flex flex-col items-center rounded-2xl text-slate-400 hover:bg-slate-800 hover:text-white transition-all active:scale-90" title="Connect Devices">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span class="text-[11px] font-bold uppercase tracking-wider">Connect</span>
+        </button>
+
+        <div class="w-16 border-b border-slate-700 my-2"></div>
+
+        <!-- Sidebar Draggables: Using custom pointer logic instead of HTML5 drag -->
+        <div onpointerdown="startSidebarDrag(event, 'PC')" class="sidebar-item p-4 w-24 flex flex-col items-center rounded-2xl text-slate-400 hover:bg-slate-800 hover:text-white transition-all cursor-grab active:cursor-grabbing" title="Grab to add PC">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>
+            <span class="text-[11px] font-bold uppercase tracking-wider">PC</span>
+        </div>
+        
+        <div onpointerdown="startSidebarDrag(event, 'Switch')" class="sidebar-item p-4 w-24 flex flex-col items-center rounded-2xl text-slate-400 hover:bg-slate-800 hover:text-white transition-all cursor-grab active:cursor-grabbing" title="Grab to add Switch">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>
+            <span class="text-[11px] font-bold uppercase tracking-wider">Switch</span>
+        </div>
+        
+        <div onpointerdown="startSidebarDrag(event, 'Router')" class="sidebar-item p-4 w-24 flex flex-col items-center rounded-2xl text-slate-400 hover:bg-slate-800 hover:text-white transition-all cursor-grab active:cursor-grabbing" title="Grab to add Router">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>
+            <span class="text-[11px] font-bold uppercase tracking-wider">Router</span>
+        </div>
+
+        <div class="flex-1"></div>
+        <button onclick="clearNetwork()" class="p-4 w-24 flex flex-col items-center rounded-2xl text-red-400 hover:bg-slate-800 hover:text-red-300 transition-all mb-4" title="Clear Network">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <span class="text-[11px] font-bold uppercase tracking-wider">Clear</span>
+        </button>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 relative overflow-hidden" id="workspace">
+        <svg id="cables" class="absolute inset-0 w-full h-full pointer-events-none"></svg>
+        <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
+
+        <!-- Floating Network Console: Larger for VR -->
+        <div id="floating-console" class="absolute top-6 left-6 w-96 bg-slate-900 rounded-2xl shadow-2xl z-30 flex flex-col border border-slate-700 overflow-hidden">
+            <div class="px-5 py-4 bg-slate-800 flex justify-between items-center cursor-pointer select-none hover:bg-slate-700 transition-colors" onclick="toggleConsole()">
+                <span class="text-sm font-bold text-slate-300 tracking-widest uppercase">Network Console</span>
+                <svg id="console-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300 -rotate-90"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <div id="console-output" class="h-32 overflow-y-auto p-4 text-sm font-mono text-emerald-400 space-y-1 select-text hidden">
+                <div>> VR Engine Initialised.</div>
+            </div>
+        </div>
+
+        <!-- STP Toggle Button: Scaled up -->
+        <div class="absolute top-6 left-[416px] z-30">
+            <button id="btn-stp" onclick="toggleSTP()" class="px-6 py-3 bg-slate-800 text-slate-300 font-black text-sm rounded-xl shadow-xl border-2 border-slate-700 hover:bg-slate-700 hover:text-white transition-all flex items-center h-14" title="Toggle STP">
+                <span>STP: OFF</span>
+            </button>
+        </div>
+
+        <!-- Bottom Left Toolbar: Larger buttons -->
+        <div id="bottom-toolbar" class="absolute bottom-6 left-6 z-30 flex items-center space-x-3 bg-slate-900 p-3 rounded-2xl shadow-2xl border border-slate-700">
+            <button onclick="setMode('addText')" id="btn-addText" class="p-3 text-slate-400 rounded-xl hover:bg-slate-700 hover:text-white transition-colors active:scale-90" title="Add Text">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/></svg>
+            </button>
+            <div class="w-px h-8 bg-slate-700 mx-2"></div>
+            <button onclick="saveTopology()" class="p-3 text-slate-400 rounded-xl hover:bg-slate-700 hover:text-white transition-colors active:scale-90">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </button>
+            <button onclick="document.getElementById('file-upload').click()" class="p-3 text-slate-400 rounded-xl hover:bg-slate-700 hover:text-white transition-colors active:scale-90">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            </button>
+            <input type="file" id="file-upload" class="hidden" accept=".json" onchange="loadTopology(event)">
+        </div>
+
+        <!-- Ping Tool: Wide inputs for VR touch -->
+        <div id="floating-ping" class="absolute top-6 right-6 w-80 bg-white rounded-2xl shadow-2xl z-30 flex flex-col border border-slate-200 p-5">
+            <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Ping Tool</h3>
+            <div class="flex flex-col space-y-3">
+                <select id="ping-source" class="w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none focus:border-blue-500 bg-slate-50 font-bold h-12">
+                    <option value="">Source PC</option>
+                </select>
+                <input type="text" id="ping-target" placeholder="Target IP" class="w-full px-4 py-3 border-2 rounded-xl text-sm focus:outline-none focus:border-blue-500 bg-slate-50 font-mono h-12" inputmode="decimal">
+                <button onclick="executePing()" class="w-full py-4 bg-slate-900 text-white rounded-xl text-sm font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-lg active:scale-95">Send Ping</button>
+            </div>
+        </div>
+        
+        <!-- Properties Panel: Large font and inputs -->
+        <div id="floating-properties" class="hidden absolute top-32 right-6 w-96 bg-white rounded-2xl shadow-2xl z-30 flex flex-col border border-slate-200 max-h-[calc(100vh-10rem)] overflow-hidden">
+            <div class="px-6 py-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <h2 id="prop-title" class="text-sm font-black text-slate-700 uppercase tracking-widest">Properties</h2>
+                <button onclick="closeProperties()" class="p-2 text-slate-400 hover:text-red-500 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6" id="properties-panel"></div>
+        </div>
+
+        <!-- Port Selector: Extra padding for VR fingers -->
+        <div id="port-selector" class="hidden absolute bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 z-50 py-2 text-sm font-mono min-w-[160px] overflow-hidden">
+        </div>
+
+        <!-- Sidebar Ghost for dragging -->
+        <div id="drag-ghost" class="fixed pointer-events-none opacity-50 z-[100] hidden"></div>
+    </div>
+
+    <script>
+        // --- Core State ---
+        let devices = {};
+        let links = {};
+        let labels = {};
+        let currentMode = 'select';
+        let selectedDeviceId = null;
+        let selectedLabelId = null;
+        let pendingCableSource = null;
+        let pendingCableSourcePort = null;
+        let deviceCounter = { PC: 1, Switch: 1, Router: 1 };
+        let stpEnabled = false;
+        let activeAnimations = 0;
+        
+        // Drag state
+        let pointerDragInfo = null;
+        let sidebarDragType = null;
+
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        const WORKSPACE = document.getElementById('workspace');
+        const NODES_CONTAINER = document.getElementById('nodes');
+        const CABLES_CONTAINER = document.getElementById('cables');
+        const CONSOLE = document.getElementById('console-output');
+        const PROP_PANEL = document.getElementById('properties-panel');
+        const DRAG_GHOST = document.getElementById('drag-ghost');
+
+        // --- Helper Classes ---
+        const generateMac = () => "XX:XX:XX:XX:XX:XX".replace(/X/g, () => "0123456789ABCDEF".charAt(Math.floor(Math.random() * 16)));
+        const generateId = () => 'id-' + Math.random().toString(36).substr(2, 9);
+        const log = (msg, type = 'info') => {
+            const div = document.createElement('div');
+            div.textContent = `> ${msg}`;
+            if (type === 'error') div.className = 'text-red-400';
+            else if (type === 'warning') div.className = 'text-yellow-400';
+            else if (type === 'success') div.className = 'text-cyan-400';
+            CONSOLE.appendChild(div);
+            CONSOLE.scrollTop = CONSOLE.scrollHeight;
+        };
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const ipToInt = (ip) => ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+        const intToIp = (int) => `${(int >>> 24) & 255}.${(int >>> 16) & 255}.${(int >>> 8) & 255}.${int & 255}`;
+        const getNetwork = (ip, mask) => intToIp(ipToInt(ip) & ipToInt(mask));
+        const getPrefixLength = (mask) => ipToInt(mask).toString(2).split('1').length - 1;
+        const isSameSubnet = (ip1, ip2, mask) => (ipToInt(ip1) & ipToInt(mask)) === (ipToInt(ip2) & ipToInt(mask));
+
+        // --- Logic Models ---
+        class PC {
+            constructor(x, y) {
+                this.id = generateId(); this.type = 'PC'; this.x = x; this.y = y;
+                this.name = `PC${deviceCounter.PC++}`; this.mac = generateMac();
+                this.ip = '0.0.0.0'; this.subnet = '255.255.255.0'; this.gateway = '0.0.0.0';
+                this.port = null; this.arpCache = {};
+            }
+            async receive(frame, inPortId) {
+                if (frame.destMac !== this.mac && frame.destMac !== 'FF:FF:FF:FF:FF:FF') return;
+                const p = frame.payload;
+                if (p.type === 'ARP_REQ' && p.targetIp === this.ip) {
+                    await sleep(100);
+                    transmit({ sourceMac: this.mac, destMac: frame.sourceMac, payload: { type: 'ARP_REP', sourceIp: this.ip, targetIp: p.sourceIp, targetMac: frame.sourceMac } }, this.id, 1);
+                } else if (p.type === 'ARP_REP' && p.targetIp === this.ip) {
+                    this.arpCache[p.sourceIp] = frame.sourceMac;
+                    updatePropertiesPanel();
+                    document.dispatchEvent(new CustomEvent('arp_resolved', { detail: { ip: p.sourceIp, mac: frame.sourceMac }}));
+                } else if (p.type === 'ICMP_REQ' && p.targetIp === this.ip) {
+                    await sleep(100);
+                    transmit({ sourceMac: this.mac, destMac: frame.sourceMac, payload: { type: 'ICMP_REP', sourceIp: this.ip, targetIp: p.sourceIp } }, this.id, 1);
+                } else if (p.type === 'ICMP_REP' && p.targetIp === this.ip) {
+                    log(`Reply from ${p.sourceIp}: SUCCESS`, 'success');
+                    document.dispatchEvent(new Event('icmp_replied'));
+                }
+            }
+        }
+
+        class Switch {
+            constructor(x, y) {
+                this.id = generateId(); this.type = 'Switch'; this.x = x; this.y = y;
+                this.name = `Switch${deviceCounter.Switch++}`; this.mac = generateMac();
+                this.ports = Array.from({length: 8}, (_, i) => ({ id: i + 1, connectedLink: null, stpState: 'forwarding', adminState: 'up' }));
+                this.macTable = {}; this.stp = { costToRoot: 0, rootBridge: this.id, rootPort: null };
+            }
+            async receive(frame, inPortId) {
+                this.macTable[frame.sourceMac] = { portId: inPortId, time: Date.now() };
+                const inP = this.ports.find(p => p.id === inPortId);
+                if (!inP || inP.stpState === 'blocking' || inP.adminState === 'down') return;
+                await sleep(50);
+                this.ports.forEach(p => {
+                    if (p.connectedLink && p.id !== inPortId && p.adminState === 'up' && p.stpState === 'forwarding') {
+                        if (frame.destMac === 'FF:FF:FF:FF:FF:FF' || !this.macTable[frame.destMac] || this.macTable[frame.destMac].portId === p.id) {
+                            transmit(frame, this.id, p.id);
+                        }
+                    }
+                });
+            }
+        }
+
+        class Router {
+            constructor(x, y) {
+                this.id = generateId(); this.type = 'Router'; this.x = x; this.y = y;
+                this.name = `Router${deviceCounter.Router++}`; this.mac = generateMac();
+                this.interfaces = {
+                    'Fa0/0': { id: 'Fa0/0', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' },
+                    'Se0/0/0': { id: 'Se0/0/0', ip: '0.0.0.0', subnet: '0.0.0.0', mac: generateMac(), connectedLink: null, adminState: 'up' }
+                };
+                this.routingTable = []; this.arpCache = {};
+            }
+            updateConnectedRoutes() {
+                this.routingTable = this.routingTable.filter(r => r.type !== 'C');
+                Object.values(this.interfaces).forEach(iface => {
+                    if (iface.ip !== '0.0.0.0' && iface.adminState === 'up' && iface.connectedLink) {
+                        this.routingTable.push({ network: getNetwork(iface.ip, iface.subnet), mask: iface.subnet, nextHop: '0.0.0.0', interface: iface.id, metric: 0, type: 'C' });
+                    }
+                });
+            }
+            async receive(frame, inPortId) {
+                const iface = this.interfaces[inPortId];
+                if (!iface || iface.adminState === 'down') return;
+                const p = frame.payload;
+                if (p.type === 'ARP_REQ' && p.targetIp === iface.ip) {
+                    transmit({ sourceMac: iface.mac, destMac: frame.sourceMac, payload: { type: 'ARP_REP', sourceIp: iface.ip, targetIp: p.sourceIp, targetMac: frame.sourceMac } }, this.id, inPortId);
+                } else if (p.targetIp && p.targetIp !== iface.ip) {
+                    this.routePacket(frame);
+                }
+            }
+            async routePacket(frame) {
+                const targetIp = frame.payload.targetIp;
+                const route = this.routingTable.find(r => isSameSubnet(targetIp, r.network, r.mask));
+                if (!route) return;
+                const outIface = this.interfaces[route.interface];
+                const nextHop = route.type === 'C' ? targetIp : route.nextHop;
+                let nextMac = this.arpCache[nextHop];
+                if (nextMac) {
+                    transmit({ sourceMac: outIface.mac, destMac: nextMac, payload: frame.payload }, this.id, outIface.id);
+                } else {
+                    transmit({ sourceMac: outIface.mac, destMac: 'FF:FF:FF:FF:FF:FF', payload: { type: 'ARP_REQ', sourceIp: outIface.ip, targetIp: nextHop } }, this.id, outIface.id);
+                }
+            }
+        }
+
+        // --- Network Simulation Core ---
+        async function transmit(frame, fromId, fromPortId) {
+            const fromDev = devices[fromId];
+            let linkId = fromDev.type === 'PC' ? fromDev.port : 
+                         (fromDev.type === 'Router' ? fromDev.interfaces[fromPortId].connectedLink : 
+                         fromDev.ports.find(p => p.id === fromPortId).connectedLink);
+            
+            if (!linkId || !links[linkId]) return;
+            const link = links[linkId];
+            const targetId = link.source === fromId ? link.target : link.source;
+            const targetPortId = link.source === fromId ? link.targetPort : link.sourcePort;
+            const targetDev = devices[targetId];
+
+            if (activeAnimations > 50) await sleep(100);
+            activeAnimations++;
+            await animatePacket(fromDev, targetDev, frame.payload.type, link);
+            activeAnimations--;
+
+            targetDev.receive({...frame}, targetPortId);
+        }
+
+        async function animatePacket(src, dest, type, link) {
+            const dot = document.createElement('div');
+            dot.className = 'fixed w-6 h-6 rounded-full shadow-2xl z-50 pointer-events-none flex items-center justify-center text-[8px] font-black text-white border-2 border-white/20';
+            dot.textContent = type.substring(0, 3);
+            dot.style.backgroundColor = type.includes('ARP') ? '#fbbf24' : (type.includes('ICMP') ? '#38bdf8' : '#10b981');
+            WORKSPACE.appendChild(dot);
+
+            const frames = [];
+            const steps = 30;
+            const cpX = link._cx || (src.x + dest.x)/2;
+            const cpY = link._cy || (src.y + dest.y)/2;
+
+            const isFwd = src.id === link.source;
+            for(let i=0; i<=steps; i++) {
+                let t = i/steps;
+                if (!isFwd) t = 1 - t;
+                const mt = 1 - t;
+                const x = mt*mt*src.x + 2*mt*t*cpX + t*t*dest.x;
+                const y = mt*mt*src.y + 2*mt*t*cpY + t*t*dest.y;
+                frames.push({ transform: `translate(${x - 12}px, ${y - 12}px)` });
+            }
+            const anim = dot.animate(frames, { duration: 800, easing: 'ease-in-out' });
+            await anim.finished;
+            dot.remove();
+        }
+
+        // --- Custom Pointer Control System ---
+        function startSidebarDrag(e, type) {
+            sidebarDragType = type;
+            DRAG_GHOST.innerHTML = `<div class="p-4 bg-slate-800 text-white rounded-2xl shadow-2xl border-2 border-blue-500">${type}</div>`;
+            DRAG_GHOST.classList.remove('hidden');
+            updateDragGhost(e);
+            
+            const moveHandler = (me) => updateDragGhost(me);
+            const upHandler = (ue) => {
+                window.removeEventListener('pointermove', moveHandler);
+                window.removeEventListener('pointerup', upHandler);
+                DRAG_GHOST.classList.add('hidden');
+                
+                const rect = WORKSPACE.getBoundingClientRect();
+                if (ue.clientX >= rect.left && ue.clientX <= rect.right) {
+                    addDeviceAt(ue.clientX - rect.left, ue.clientY - rect.top, sidebarDragType);
+                }
+                sidebarDragType = null;
+            };
+            window.addEventListener('pointermove', moveHandler);
+            window.addEventListener('pointerup', upHandler);
+        }
+
+        function updateDragGhost(e) {
+            DRAG_GHOST.style.left = `${e.clientX}px`;
+            DRAG_GHOST.style.top = `${e.clientY}px`;
+            DRAG_GHOST.style.transform = `translate(-50%, -50%)`;
+        }
+
+        function addDeviceAt(x, y, type) {
+            let d;
+            if (type === 'PC') d = new PC(x, y);
+            else if (type === 'Switch') d = new Switch(x, y);
+            else if (type === 'Router') d = new Router(x, y);
+            devices[d.id] = d;
+            log(`Deployed ${d.name} at [${Math.round(x)}, ${Math.round(y)}]`);
+            renderNodes();
+        }
+
+        // --- Interaction Handlers ---
+        WORKSPACE.onpointerdown = (e) => {
+            if (e.target.closest('.device-node') || e.target.closest('.text-label') || e.target.closest('button')) return;
+            
+            selectedDeviceId = null;
+            selectedLabelId = null;
+            document.getElementById('port-selector').classList.add('hidden');
+            updatePropertiesPanel();
+            renderNodes();
+
+            if (currentMode === 'addText') {
+                const rect = WORKSPACE.getBoundingClientRect();
+                const id = generateId();
+                labels[id] = { id, text: 'Tap to Edit', x: e.clientX - rect.left, y: e.clientY - rect.top };
+                setMode('select');
+                selectedLabelId = id;
+                renderNodes();
+                updatePropertiesPanel();
+            }
+        };
+
+        function setMode(mode) {
+            currentMode = mode;
+            pendingCableSource = null;
+            document.querySelectorAll('button[id^="btn-"]').forEach(b => b.classList.remove('bg-blue-600', 'text-white'));
+            document.querySelectorAll('button[id^="btn-"]').forEach(b => b.classList.add('text-slate-400'));
+            const active = document.getElementById(`btn-${mode}`);
+            if (active) { active.classList.add('bg-blue-600', 'text-white'); active.classList.remove('text-slate-400'); }
+            WORKSPACE.className = `flex-1 relative overflow-hidden mode-${mode}`;
+            renderNodes(); renderLinks();
+        }
+
+        function renderNodes() {
+            NODES_CONTAINER.innerHTML = '';
+            for (let id in devices) {
+                const dev = devices[id];
+                const el = document.createElement('div');
+                el.className = `device-node absolute pointer-events-auto flex flex-col items-center justify-center w-32 h-32 -ml-16 -mt-16 cursor-pointer ${id === selectedDeviceId ? 'selected-node' : ''}`;
+                el.style.left = `${dev.x}px`;
+                el.style.top = `${dev.y}px`;
+
+                const icon = document.createElement('div');
+                icon.className = `node-icon w-20 h-20 rounded-3xl flex items-center justify-center shadow-xl border-4 ${dev.type==='PC'?'bg-white border-slate-200 text-slate-700':'bg-slate-900 border-slate-800 text-white'}`;
+                
+                if (dev.type==='PC') icon.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>`;
+                else if (dev.type==='Router') icon.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>`;
+                else icon.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>`;
+
+                const name = document.createElement('div');
+                name.className = 'text-xs font-black mt-2 bg-slate-900/10 px-2 py-0.5 rounded-lg';
+                name.textContent = dev.name;
+
+                el.appendChild(icon);
+                el.appendChild(name);
+
+                el.onpointerdown = (e) => {
+                    e.stopPropagation();
+                    if (currentMode === 'select') {
+                        selectedDeviceId = id; selectedLabelId = null;
+                        renderNodes(); updatePropertiesPanel();
+                        const startX = e.clientX, startY = e.clientY, origX = dev.x, origY = dev.y;
+                        const mv = (me) => { dev.x = origX + (me.clientX - startX); dev.y = origY + (me.clientY - startY); renderNodes(); renderLinks(); };
+                        const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+                        window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+                    } else if (currentMode === 'addCable') {
+                        handleCableStart(id, e.clientX, e.clientY);
+                    }
+                };
+                NODES_CONTAINER.appendChild(el);
+            }
+
+            for (let id in labels) {
+                const lb = labels[id];
+                const el = document.createElement('div');
+                el.className = `text-label absolute pointer-events-auto p-4 bg-white/80 border-2 border-dashed rounded-xl font-bold text-sm cursor-move ${id === selectedLabelId ? 'border-blue-500 shadow-lg' : 'border-slate-300'}`;
+                el.style.left = `${lb.x}px`; el.style.top = `${lb.y}px`; el.style.transform = 'translate(-50%, -50%)';
+                el.textContent = lb.text;
+                el.onpointerdown = (e) => {
+                    e.stopPropagation();
+                    selectedLabelId = id; selectedDeviceId = null;
+                    renderNodes(); updatePropertiesPanel();
+                    const sX = e.clientX, sY = e.clientY, oX = lb.x, oY = lb.y;
+                    const mv = (me) => { lb.x = oX + (me.clientX - sX); lb.y = oY + (me.clientY - sY); renderNodes(); };
+                    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+                    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+                };
+                NODES_CONTAINER.appendChild(el);
+            }
+            updatePingSourceDropdown();
+        }
+
+        function handleCableStart(id, x, y) {
+            const dev = devices[id];
+            if (dev.type === 'PC' && dev.port) return log("PC already connected.", "error");
+            
+            if (!pendingCableSource) {
+                if (dev.type === 'PC') { pendingCableSource = { id, port: 1 }; log(`Cable started from ${dev.name}`); }
+                else showPortSelector(id, x, y, (pId) => { pendingCableSource = { id, port: pId }; log(`Cable started from ${dev.name} Port ${pId}`); });
+            } else {
+                if (pendingCableSource.id === id) return pendingCableSource = null;
+                if (dev.type === 'PC') finishCable(id, 1);
+                else showPortSelector(id, x, y, (pId) => finishCable(id, pId));
+            }
+        }
+
+        function finishCable(targetId, targetPort) {
+            const lId = generateId();
+            links[lId] = { id: lId, source: pendingCableSource.id, sourcePort: pendingCableSource.port, target: targetId, targetPort: targetPort };
+            
+            const d1 = devices[pendingCableSource.id], d2 = devices[targetId];
+            if (d1.type==='PC') d1.port = lId; else if (d1.type==='Router') d1.interfaces[pendingCableSource.port].connectedLink = lId; else d1.ports.find(p=>p.id===pendingCableSource.port).connectedLink = lId;
+            if (d2.type==='PC') d2.port = lId; else if (d2.type==='Router') d2.interfaces[targetPort].connectedLink = lId; else d2.ports.find(p=>p.id===targetPort).connectedLink = lId;
+
+            log(`Link established.`);
+            pendingCableSource = null; setMode('select');
+        }
+
+        function showPortSelector(devId, x, y, cb) {
+            const dev = devices[devId];
+            const sel = document.getElementById('port-selector');
+            sel.innerHTML = '<div class="px-5 py-3 border-b border-slate-700 font-black text-slate-500 text-[10px] uppercase">Select Port</div>';
+            
+            let ports = dev.type === 'Switch' ? dev.ports : Object.values(dev.interfaces);
+            ports.filter(p => !p.connectedLink).forEach(p => {
+                const b = document.createElement('div');
+                b.className = 'px-6 py-4 hover:bg-blue-600 cursor-pointer border-b border-slate-800 last:border-0';
+                b.textContent = dev.type === 'Switch' ? `Fa0/${p.id}` : p.id;
+                b.onclick = () => { sel.classList.add('hidden'); cb(p.id); };
+                sel.appendChild(b);
+            });
+            sel.style.left = `${x}px`; sel.style.top = `${y}px`;
+            sel.classList.remove('hidden');
+        }
+
+        function renderLinks() {
+            CABLES_CONTAINER.innerHTML = '';
+            for (let id in links) {
+                const l = links[id], s = devices[l.source], t = devices[l.target];
+                const path = document.createElementNS(SVG_NS, 'path');
+                const mx = (s.x+t.x)/2, my = (s.y+t.y)/2;
+                const dx = t.x - s.x, dy = t.y - s.y, len = Math.sqrt(dx*dx+dy*dy);
+                const nx = -dy/len, ny = dx/len;
+                const cx = mx + nx * 20, cy = my + ny * 20;
+                l._cx = cx; l._cy = cy;
+                
+                path.setAttribute('d', `M ${s.x} ${s.y} Q ${cx} ${cy} ${t.x} ${t.y}`);
+                path.setAttribute('stroke', '#64748b'); path.setAttribute('stroke-width', '4'); path.setAttribute('fill', 'none');
+                CABLES_CONTAINER.appendChild(path);
+
+                // Delete clicker
+                const clicker = document.createElementNS(SVG_NS, 'circle');
+                clicker.setAttribute('cx', cx); clicker.setAttribute('cy', cy); clicker.setAttribute('r', '15');
+                clicker.setAttribute('fill', '#ef4444'); clicker.setAttribute('class', 'cursor-pointer opacity-0 hover:opacity-100');
+                clicker.onclick = () => { delete links[id]; log("Link removed."); renderLinks(); };
+                CABLES_CONTAINER.appendChild(clicker);
+            }
+        }
+
+        function updatePropertiesPanel() {
+            const fp = document.getElementById('floating-properties');
+            if (!selectedDeviceId && !selectedLabelId) return fp.classList.add('hidden');
+            fp.classList.remove('hidden');
+            
+            if (selectedLabelId) {
+                const l = labels[selectedLabelId];
+                PROP_PANEL.innerHTML = `
+                    <textarea class="w-full p-4 border-2 rounded-2xl mb-4 font-bold text-lg h-32" oninput="labels['${selectedLabelId}'].text=this.value; renderNodes()">${l.text}</textarea>
+                    <button onclick="delete labels['${selectedLabelId}']; selectedLabelId=null; renderNodes(); updatePropertiesPanel()" class="w-full py-4 bg-red-500 text-white rounded-xl font-black uppercase">Delete Annotation</button>
+                `;
+                return;
+            }
+
+            const d = devices[selectedDeviceId];
+            let html = `<div class="space-y-6">`;
+            if (d.type === 'PC') {
+                html += `
+                    <div><label class="block text-xs font-black text-slate-400 mb-2 uppercase">IP Address</label>
+                    <input type="text" value="${d.ip}" class="w-full p-4 border-2 rounded-xl font-mono h-14" onchange="devices['${d.id}'].ip=this.value" inputmode="decimal"></div>
+                    <div><label class="block text-xs font-black text-slate-400 mb-2 uppercase">Default Gateway</label>
+                    <input type="text" value="${d.gateway}" class="w-full p-4 border-2 rounded-xl font-mono h-14" onchange="devices['${d.id}'].gateway=this.value" inputmode="decimal"></div>
+                `;
+            } else if (d.type === 'Router') {
+                for (let k in d.interfaces) {
+                    html += `<div class="p-4 bg-slate-50 rounded-2xl border-2">
+                        <div class="font-black text-blue-600 mb-2">${k}</div>
+                        <input type="text" placeholder="IP" value="${d.interfaces[k].ip}" class="w-full p-3 border rounded-lg mb-2" onchange="devices['${d.id}'].interfaces['${k}'].ip=this.value; devices['${d.id}'].updateConnectedRoutes()">
+                        <input type="text" placeholder="Mask" value="${d.interfaces[k].subnet}" class="w-full p-3 border rounded-lg" onchange="devices['${d.id}'].interfaces['${k}'].subnet=this.value; devices['${d.id}'].updateConnectedRoutes()">
+                    </div>`;
+                }
+            }
+            html += `<button onclick="deleteDevice('${d.id}')" class="w-full py-4 bg-red-100 text-red-600 border-2 border-red-200 rounded-xl font-black uppercase">Delete ${d.name}</button></div>`;
+            PROP_PANEL.innerHTML = html;
+        }
+
+        function deleteDevice(id) {
+            delete devices[id];
+            for (let l in links) if(links[l].source===id || links[l].target===id) delete links[l];
+            selectedDeviceId = null; log("Device removed."); renderNodes(); renderLinks(); updatePropertiesPanel();
+        }
+
+        function updatePingSourceDropdown() {
+            const sel = document.getElementById('ping-source');
+            const cur = sel.value;
+            sel.innerHTML = '<option value="">Source PC</option>';
+            for (let id in devices) if(devices[id].type==='PC') {
+                const o = document.createElement('option'); o.value=id; o.textContent=devices[id].name; sel.appendChild(o);
+            }
+            sel.value = devices[cur] ? cur : "";
+        }
+
+        async function executePing() {
+            const sId = document.getElementById('ping-source').value, tIp = document.getElementById('ping-target').value;
+            if (!sId || !tIp) return log("Invalid ping parameters.", "error");
+            const pc = devices[sId];
+            log(`[${pc.name}] Pinging ${tIp}...`);
+            pc.receive({ sourceMac: 'NONE', destMac: pc.mac, payload: { type: 'ICMP_REQ', sourceIp: '1.1.1.1', targetIp: tIp } }, 0);
+        }
+
+        function toggleSTP() { stpEnabled = !stpEnabled; document.getElementById('btn-stp').textContent = `STP: ${stpEnabled ? 'ON' : 'OFF'}`; log(`STP ${stpEnabled?'Enabled':'Disabled'}`); }
+        function toggleConsole() { const o = document.getElementById('console-output'); o.classList.toggle('hidden'); document.getElementById('console-chevron').classList.toggle('-rotate-90'); }
+        function clearNetwork() { if(confirm("Clear everything?")) { devices={}; links={}; labels={}; deviceCounter={PC:1,Switch:1,Router:1}; renderNodes(); renderLinks(); log("Network cleared."); } }
+        function saveTopology() { const data = JSON.stringify({devices, links, labels, deviceCounter}); const blob = new Blob([data], {type: "application/json"}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'topology.json'; a.click(); }
+        function closeProperties() { selectedDeviceId=null; selectedLabelId=null; updatePropertiesPanel(); renderNodes(); }
+
+        window.onload = () => { renderNodes(); log("Quest Simulator Ready."); };
+    </script>
+</body>
+</html>
