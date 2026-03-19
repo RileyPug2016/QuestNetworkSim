@@ -2219,52 +2219,118 @@ class HandTracker {
 
 /* WebXR Session Init */
 async function initXR() {
-  if (!navigator.xr) { log('WebXR not supported.', 'error'); return; }
+  // 1. Secure context check
+  if (!window.isSecureContext) {
+    log('XR requires HTTPS. Serve this file from a web server, not file://.', 'error');
+    return;
+  }
 
-  const supported = await navigator.xr.isSessionSupported('immersive-ar');
-  if (!supported) { log('Immersive AR not supported on this device.', 'error'); return; }
+  // 2. API availability
+  if (!navigator.xr) {
+    log('navigator.xr unavailable. Enable WebXR in browser flags or update browser.', 'error');
+    return;
+  }
+
+  // 3. Session mode support
+  let arSupported = false;
+  try {
+    arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+  } catch (err) {
+    log(`isSessionSupported failed: ${err.message}`, 'error');
+    return;
+  }
+  if (!arSupported) {
+    log('immersive-ar not supported. Check browser XR settings on your Quest.', 'error');
+    return;
+  }
+
+  log('Pre-flight OK. Requesting XR session...', 'info');
+
+  // 4. Try with dom-overlay first, fall back without it
+  const sessionConfigs = [
+    {
+      label: 'AR + DOM Overlay + Hand Tracking',
+      options: {
+        requiredFeatures: ['dom-overlay'],
+        optionalFeatures: ['local-floor', 'hand-tracking'],
+        domOverlay:       { root: document.body },
+      }
+    },
+    {
+      label: 'AR + DOM Overlay (no hand tracking)',
+      options: {
+        requiredFeatures: ['dom-overlay'],
+        optionalFeatures: ['local-floor'],
+        domOverlay:       { root: document.body },
+      }
+    },
+    {
+      label: 'AR only (no overlay)',
+      options: {
+        optionalFeatures: ['local-floor'],
+      }
+    },
+  ];
+
+  for (const config of sessionConfigs) {
+    try {
+      log(`Trying: ${config.label}...`, 'info');
+      xrSession = await navigator.xr.requestSession('immersive-ar', config.options);
+      log(`Session started: ${config.label}`, 'info');
+      break;
+    } catch (err) {
+      log(`✗ ${config.label}: ${err.name} — ${err.message}`, 'warn');
+      xrSession = null;
+    }
+  }
+
+  if (!xrSession) {
+    log('All XR session attempts failed. See warnings above for detail.', 'error');
+    return;
+  }
 
   try {
-    xrSession = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['dom-overlay'],
-      optionalFeatures: ['local-floor', 'hand-tracking'],
-      domOverlay:       { root: document.body },
-    });
-
     xrSession.addEventListener('end', onXREnd);
     xrSession.addEventListener('inputsourceschange', onInputSourcesChange);
 
-    // Init WebGL context for transparent pass-through
-    // xrCompatible:true is set at context creation — no makeXRCompatible() needed
+    // WebGL context — xrCompatible:true at creation avoids makeXRCompatible() race
     const canvas = document.getElementById('xr-canvas');
     xrGlCtx = canvas.getContext('webgl2', { alpha:true, xrCompatible:true })
            || canvas.getContext('webgl',  { alpha:true, xrCompatible:true });
-    xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlCtx, { alpha:true }) });
 
-    // Try floor-level reference space, fall back to local if unavailable
+    if (!xrGlCtx) { log('Failed to create WebGL context.', 'error'); xrSession.end(); return; }
+
+    xrSession.updateRenderState({
+      baseLayer: new XRWebGLLayer(xrSession, xrGlCtx, { alpha:true })
+    });
+
+    // Reference space — floor preferred, local as fallback
     try {
       xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+      log('Using local-floor reference space.', 'info');
     } catch {
       xrRefSpace = await xrSession.requestReferenceSpace('local');
-      log('Floor tracking unavailable, using local space.', 'warn');
+      log('Floor unavailable — using local reference space.', 'warn');
     }
 
-    // Init hand tracker
+    // Hand tracker (only if hand-tracking was granted)
+    const hasHandTracking = [...xrSession.inputSources].some(s => s.hand)
+      || xrSession.enabledFeatures?.includes('hand-tracking');
     handTracker = new HandTracker(xrSession, xrRefSpace);
+    if (!hasHandTracking) log('Hand tracking not available — use controller/touch instead.', 'warn');
 
     xrSession.requestAnimationFrame(onXRFrame);
 
-    // Apply XR visual classes
     document.documentElement.classList.add('xr-active');
     document.body.classList.add('xr-active');
     document.getElementById('workspace').classList.add('xr-active');
+    document.getElementById('btn-xr').classList.add('xr-active-btn');
 
-    const btn = document.getElementById('btn-xr');
-    btn.classList.add('xr-active-btn');
+    log('WebXR session live. Pinch index+thumb to interact.', 'info');
 
-    log('Entered WebXR. Hand tracking active — pinch to interact.', 'info');
   } catch (err) {
-    log(`XR failed: ${err.message}`, 'error');
+    log(`XR setup error: ${err.name} — ${err.message}`, 'error');
+    if (xrSession) xrSession.end();
   }
 }
 
