@@ -28,9 +28,10 @@
         }
 
         /* True WebXR Active Mode - Make backgrounds transparent for AR Passthrough */
-        .xr-active { background-color: transparent !important; }
-        .xr-active #workspace { background-color: transparent !important; }
-        .xr-active #sidebar { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
+        body.xr-active { background-color: transparent !important; }
+        body.xr-active #app-container { background-color: transparent !important; }
+        body.xr-active #workspace { background-color: transparent !important; }
+        body.xr-active #sidebar { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
 
         #workspace.mode-addCable, #workspace.mode-addCable * {
             cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/%3E%3C/svg%3E") 12 12, crosshair !important;
@@ -108,7 +109,7 @@
         <!-- Main Workspace -->
         <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
             <!-- Panning Container -->
-            <div id="network-layer" class="absolute inset-0 w-full h-full transform-gpu origin-top-left pointer-events-none">
+            <div id="network-layer" class="absolute inset-0 w-full h-full origin-top-left pointer-events-none">
                 <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
                 <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
             </div>
@@ -199,9 +200,6 @@
         </div>
     </div>
     
-    <!-- Hidden Canvas to bind WebGL processing for WebXR Session -->
-    <canvas id="xr-canvas" class="hidden"></canvas>
-
     <script>
         // --- Core State & Models ---
         let devices = {};
@@ -262,23 +260,24 @@
             }
 
             try {
-                // Request Immersive AR with DOM Overlay targeting our app wrapper
+                // Request Immersive AR with DOM Overlay targeting the body directly
                 xrSession = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['local-floor'],
                     optionalFeatures: ['dom-overlay', 'hand-tracking'],
-                    domOverlay: { root: document.getElementById('app-container') }
+                    domOverlay: { root: document.body }
                 });
 
                 xrSession.addEventListener('end', onXREnded);
                 
-                // A WebGL context is mandatory to keep the compositor alive, even if empty.
-                const canvas = document.getElementById('xr-canvas');
+                // A WebGL context is mandatory to keep the compositor alive. 
+                // Generating it in memory prevents bugs caused by display:none HTML canvases
+                const canvas = document.createElement('canvas');
                 xrGlContext = canvas.getContext('webgl', { xrCompatible: true });
                 xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext) });
                 xrSession.requestAnimationFrame(onXRFrame);
                 
                 // Visual updates
-                document.getElementById('app-container').classList.add('xr-active');
+                document.body.classList.add('xr-active');
                 const btn = document.getElementById('btn-xr');
                 btn.classList.add('text-cyan-400', 'bg-slate-800');
                 btn.classList.remove('text-slate-400');
@@ -291,7 +290,7 @@
 
         function onXREnded() {
             xrSession = null;
-            document.getElementById('app-container').classList.remove('xr-active');
+            document.body.classList.remove('xr-active');
             const btn = document.getElementById('btn-xr');
             btn.classList.remove('text-cyan-400', 'bg-slate-800');
             btn.classList.add('text-slate-400');
@@ -501,7 +500,7 @@
                 if (isReversed) easedT = 1 - easedT; const mt = 1 - easedT;
                 const x = mt * mt * devA.x + 2 * mt * easedT * cx + easedT * easedT * devB.x;
                 const y = mt * mt * devA.y + 2 * mt * easedT * cy + easedT * easedT * devB.y;
-                frames.push({ transform: `translate3d(${x}px, ${y}px, 0)` }); 
+                frames.push({ transform: `translate(${x}px, ${y}px)` }); 
             }
 
             const animation = pktContainer.animate(frames, { duration: 850, easing: 'linear' });
@@ -596,7 +595,7 @@
                 panX += dx; panY += dy;
                 totalPanDelta += Math.abs(dx) + Math.abs(dy);
                 lastPanClientX = e.clientX; lastPanClientY = e.clientY;
-                NETWORK_LAYER.style.transform = `translate3d(${panX}px, ${panY}px, 0)`;
+                NETWORK_LAYER.style.transform = `translate(${panX}px, ${panY}px)`;
                 WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
             }
@@ -797,7 +796,7 @@
                     if (data.stpEnabled !== undefined && data.stpEnabled !== stpEnabled) toggleSTP(); 
                     selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null;
                     flushMacTables(); renderNodes(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel();
-                    panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate3d(0px, 0px, 0)`; WORKSPACE.style.backgroundPosition = `0px 0px`;
+                    panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate(0px, 0px)`; WORKSPACE.style.backgroundPosition = `0px 0px`;
                 } catch (err) {}
             };
             reader.readAsText(file); event.target.value = ''; 
@@ -1062,7 +1061,7 @@
             if (!icmpReplied) { log(`[${pc.name}] Request timed out.`, 'error'); triggerHaptic(0.5, 100); } else showSuccessTick(pc.id);
         };
 
-        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate3d(0px, 0px, 0)`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
+        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate(0px, 0px)`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
 
         renderNodes();
     </script>
