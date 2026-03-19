@@ -270,19 +270,18 @@
                 return;
             }
             
-            const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
-            if (!isSupported) {
-                log("Immersive AR is not supported on this device.", "error");
-                return;
-            }
-
             try {
-                // Request Immersive AR with DOM Overlay. Require dom-overlay to strictly guarantee UI generation.
-                // Downgraded local-floor to optional so it won't hard fail if tracking is temporarily lost.
+                const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
+                if (!isSupported) {
+                    log("Immersive AR is not supported on this device.", "error");
+                    return;
+                }
+
+                // Request Immersive AR. Ensure local-floor is optional to prevent hard crash if room scale isn't mapped.
                 xrSession = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['dom-overlay'],
-                    optionalFeatures: ['local-floor', 'hand-tracking'],
-                    domOverlay: { root: document.body }
+                    optionalFeatures: ['local-floor', 'local', 'hand-tracking'],
+                    domOverlay: { root: document.getElementById('app-container') }
                 });
 
                 xrSession.addEventListener('end', onXREnded);
@@ -299,12 +298,8 @@
                 });
 
                 // Global select fallback: Ensures drops happen even if DOM pointer events lose track during fast hand movements
-                xrSession.addEventListener('selectstart', (e) => {
-                    triggerHaptic(0.2, 20); // Small haptic pulse on any XR grab
-                });
-
+                xrSession.addEventListener('selectstart', (e) => { triggerHaptic(0.2, 20); });
                 xrSession.addEventListener('selectend', (e) => {
-                    // If WebXR registers a release, but the synthetic DOM pointerup missed it, force a global UI release.
                     if (isWorkspacePanning) isWorkspacePanning = false;
                     if (activePanel) activePanel = null;
                     if (dragInfo) dragInfo = null;
@@ -313,15 +308,17 @@
                     }
                 });
                 
-                // Initialize the external WebGL canvas correctly with alpha transparency
+                // Initialize the external WebGL canvas safely with XR compatibility
                 const canvas = document.getElementById('xr-canvas');
-                xrGlContext = canvas.getContext('webgl2', { alpha: true, xrCompatible: true }) || canvas.getContext('webgl', { alpha: true, xrCompatible: true });
+                xrGlContext = canvas.getContext('webgl2', { alpha: true }) || canvas.getContext('webgl', { alpha: true });
                 
-                // Update render state to ensure alpha channel is maintained
+                // Critical step for Meta Quest Browser to not reject the baseLayer
+                await xrGlContext.makeXRCompatible();
+                
                 xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext, { alpha: true }) });
                 xrSession.requestAnimationFrame(onXRFrame);
                 
-                // Visual updates: Explicitly clear background layers so the Passthrough camera is visible
+                // Visual updates: Clear background layers so Passthrough is visible
                 document.documentElement.classList.add('xr-active');
                 document.body.classList.add('xr-active');
                 document.getElementById('app-container').classList.add('xr-active');
@@ -332,9 +329,9 @@
                 btn.classList.add('text-cyan-400', 'bg-slate-800');
                 btn.classList.remove('text-slate-400');
                 
-                log("Entered WebXR Immersive Session. Interface has been scaled for physical interaction.", "success");
+                log("Entered WebXR Session. Interface scaled for physical interaction.", "success");
             } catch (err) {
-                log(`WebXR Session failed: ${err.message}. Ensure DOM overlay is permitted.`, "error");
+                log(`WebXR Session failed: ${err.message}.`, "error");
             }
         }
 
@@ -365,7 +362,6 @@
             else initWebXR();
         };
 
-        // Check WebXR capability on load to inform user
         if (navigator.xr) {
             navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
                 if (!supported) document.getElementById('btn-xr').style.opacity = '0.5';
