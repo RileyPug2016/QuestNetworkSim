@@ -109,7 +109,7 @@
         <!-- Main Workspace -->
         <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
             <!-- Panning Container -->
-            <div id="network-layer" class="absolute inset-0 w-full h-full origin-top-left pointer-events-none">
+            <div id="network-layer" class="absolute w-full h-full pointer-events-none" style="left: 0px; top: 0px; z-index: 10;">
                 <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
                 <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
             </div>
@@ -270,8 +270,15 @@
                 xrSession.addEventListener('end', onXREnded);
                 
                 // A WebGL context is mandatory to keep the compositor alive. 
-                // Generating it in memory prevents bugs caused by display:none HTML canvases
-                const canvas = document.createElement('canvas');
+                // Appending it to the DOM (hidden) prevents Quest rendering culls.
+                let canvas = document.getElementById('xr-canvas-bg');
+                if (!canvas) {
+                    canvas = document.createElement('canvas');
+                    canvas.id = 'xr-canvas-bg';
+                    canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -9999; opacity: 0; pointer-events: none;';
+                    document.body.appendChild(canvas);
+                }
+                
                 xrGlContext = canvas.getContext('webgl', { xrCompatible: true });
                 xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext) });
                 xrSession.requestAnimationFrame(onXRFrame);
@@ -476,7 +483,7 @@
         async function animatePacket(sourceDevice, targetDevice, type, link) {
             const pktContainer = document.createElement('div');
             pktContainer.className = 'absolute top-0 left-0 z-50 pointer-events-none';
-            pktContainer.style.willChange = 'transform'; 
+            // Removed pktContainer.style.willChange = 'transform'; to prevent WebXR layer culling
             
             const pktDot = document.createElement('div');
             pktDot.className = 'absolute w-4 h-4 rounded-full shadow-md border border-white/40 shadow-[0_0_8px_currentColor]';
@@ -595,7 +602,10 @@
                 panX += dx; panY += dy;
                 totalPanDelta += Math.abs(dx) + Math.abs(dy);
                 lastPanClientX = e.clientX; lastPanClientY = e.clientY;
-                NETWORK_LAYER.style.transform = `translate(${panX}px, ${panY}px)`;
+                
+                // Use explicit left/top instead of transform to prevent WebXR DOM overlay clipping
+                NETWORK_LAYER.style.left = `${panX}px`;
+                NETWORK_LAYER.style.top = `${panY}px`;
                 WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
             }
@@ -829,7 +839,8 @@
                 const dev = devices[id];
                 const el = document.createElement('div');
                 el.className = `device-node absolute pointer-events-auto flex flex-col items-center justify-center w-32 h-32 -ml-16 -mt-16 cursor-pointer touch-none ${id === selectedDeviceId ? 'selected-node' : ''} ${id === pendingCableSource ? 'pending-connection' : ''}`;
-                el.style.left = `${dev.x}px`; el.style.top = `${dev.y}px`; el.style.isolation = 'isolate'; el.setAttribute('data-id', id);
+                // Removed isolation: isolate which breaks WebXR DOM overlay depth sorting
+                el.style.left = `${dev.x}px`; el.style.top = `${dev.y}px`; el.style.zIndex = '15'; el.setAttribute('data-id', id);
 
                 if (dev.type === 'AP') {
                     const radius = document.createElement('div'); const size = dev.band === '2.4' ? 700 : 400;
@@ -963,21 +974,21 @@
             circle.setAttribute('fill', color); circle.setAttribute('style', `filter: drop-shadow(0 0 4px ${color})`); CABLES_CONTAINER.appendChild(circle);
         }
 
-        function drawPortLabel(x, y, text, devId, portId, adminState) {
-            const label = document.createElementNS(SVG_NS, 'text'); label.setAttribute('x', x); label.setAttribute('y', y); label.setAttribute('font-size', '12');
-            label.setAttribute('fill', adminState === 'down' ? '#94a3b8' : '#1e293b'); if (adminState === 'down') label.setAttribute('text-decoration', 'line-through');
-            label.setAttribute('font-family', 'monospace'); label.setAttribute('font-weight', 'bold'); label.setAttribute('text-anchor', 'middle'); label.setAttribute('dominant-baseline', 'middle');
-            label.setAttribute('style', 'cursor: pointer; pointer-events: auto; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; stroke-linecap: round; stroke-linejoin: round;');
-            label.textContent = text; if (devId && portId) label.addEventListener('pointerup', (e) => { e.stopPropagation(); togglePortStatus(devId, portId); });
-            CABLES_CONTAINER.appendChild(label);
-        }
-
-        window.togglePortStatus = (devId, portId) => {
-            const dev = devices[devId]; if (!dev) return; let p = null; if (dev.type === 'Switch' || dev.type === 'AP') p = dev.ports.find(pt => pt.id === portId); else if (dev.type === 'Router') p = dev.interfaces[portId]; if (!p) return;
-            p.adminState = p.adminState === 'up' ? 'down' : 'up';
-            if (dev.type === 'Router') { dev.updateConnectedRoutes(); dev.ripBroadcastCount = 0; }
-            flushMacTables(); triggerHaptic(0.2, 30);
-            if (stpEnabled) calculateSTP(); else { renderLinks(); if (selectedDeviceId === devId) updatePropertiesPanel(); }
+        window.loadTopology = (event) => {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result); devices = {};
+                    for (let id in data.devices) { const d = data.devices[id]; let instance; if (d.type === 'PC') instance = new PC(d.x, d.y); else if (d.type === 'Laptop') instance = new Laptop(d.x, d.y); else if (d.type === 'Switch') instance = new Switch(d.x, d.y); else if (d.type === 'Router') instance = new Router(d.x, d.y); else if (d.type === 'AP') instance = new AccessPoint(d.x, d.y); Object.assign(instance, d); devices[id] = instance; }
+                    links = data.links || {}; labels = data.labels || {}; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1, ...(data.deviceCounter || {}) };
+                    if (data.stpEnabled !== undefined && data.stpEnabled !== stpEnabled) toggleSTP(); 
+                    selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null;
+                    flushMacTables(); renderNodes(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel();
+                    panX = 0; panY = 0; NETWORK_LAYER.style.left = `0px`; NETWORK_LAYER.style.top = `0px`; WORKSPACE.style.backgroundPosition = `0px 0px`;
+                } catch (err) {}
+            };
+            reader.readAsText(file); event.target.value = ''; 
         };
 
         // --- Properties Panel ---
@@ -1061,7 +1072,7 @@
             if (!icmpReplied) { log(`[${pc.name}] Request timed out.`, 'error'); triggerHaptic(0.5, 100); } else showSuccessTick(pc.id);
         };
 
-        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate(0px, 0px)`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
+        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.left = `0px`; NETWORK_LAYER.style.top = `0px`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
 
         renderNodes();
     </script>
