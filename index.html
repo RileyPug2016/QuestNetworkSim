@@ -27,12 +27,6 @@
             transition: background-color 0.3s ease;
         }
 
-        /* True WebXR Active Mode - Make backgrounds transparent for AR Passthrough */
-        html.xr-active, body.xr-active { background-color: transparent !important; background: transparent !important; }
-        #app-container.xr-active { background-color: transparent !important; }
-        #workspace.xr-active { background-color: transparent !important; }
-        #sidebar.xr-active { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
-
         #workspace.mode-addCable, #workspace.mode-addCable * {
             cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/%3E%3C/svg%3E") 12 12, crosshair !important;
         }
@@ -59,12 +53,32 @@
 
         .panel-header { cursor: grab; }
         .panel-header:active { cursor: grabbing; }
+
+        /* ==================================================================
+           TRUE WEBXR COMPOSITOR FIXES 
+           The Meta Quest compositor drops layers with complex filters or 
+           shadows in DOM Overlay mode. We must strip them to keep nodes visible.
+           ================================================================== */
+        html.xr-active, body.xr-active { background-color: transparent !important; background: transparent !important; }
+        #app-container.xr-active { background-color: transparent !important; }
+        #workspace.xr-active { background-color: transparent !important; }
+        #sidebar.xr-active { background-color: rgba(15, 23, 42, 0.95) !important; }
+        
+        body.xr-active * {
+            box-shadow: none !important;
+            filter: none !important;
+            backdrop-filter: none !important;
+        }
+        
+        body.xr-active #cables {
+            overflow: hidden !important; /* Prevents SVG from breaking the compositor bounding box */
+        }
     </style>
 </head>
 <body class="h-screen w-full overflow-hidden text-slate-800 font-sans select-none touch-none bg-slate-900 transition-colors duration-300">
 
-    <!-- Hidden Canvas explicitly separated from the DOM overlay root to prevent compositor culling -->
-    <canvas id="xr-canvas" class="fixed top-0 left-0 w-full h-full pointer-events-none opacity-0" style="z-index: -1;"></canvas>
+    <!-- WebXR Canvas - Opacity returned to 1, completely transparent clearColor in JS -->
+    <canvas id="xr-canvas" class="fixed inset-0 w-full h-full pointer-events-none" style="z-index: -1;"></canvas>
 
     <!-- The root container required for WebXR DOM Overlay -->
     <div id="app-container" class="w-full h-full flex relative bg-slate-900 transition-colors duration-300">
@@ -112,9 +126,9 @@
         <!-- Main Workspace -->
         <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
             <!-- Panning Container -->
-            <div id="network-layer" class="absolute inset-0 w-full h-full pointer-events-none overflow-visible" style="z-index: 10; transform: translate(0px, 0px);">
+            <div id="network-layer" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 10; transform: translate(0px, 0px);">
                 <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
-                <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none overflow-visible"></div>
+                <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
             </div>
 
             <!-- Floating Network Console -->
@@ -267,7 +281,7 @@
                 xrSession = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['local-floor', 'dom-overlay'],
                     optionalFeatures: ['hand-tracking'],
-                    domOverlay: { root: document.getElementById('app-container') }
+                    domOverlay: { root: document.body }
                 });
 
                 xrSession.addEventListener('end', onXREnded);
@@ -492,10 +506,12 @@
             pktContainer.className = 'absolute top-0 left-0 z-50 pointer-events-none';
             
             const pktDot = document.createElement('div');
-            pktDot.className = 'absolute w-4 h-4 rounded-full shadow-md border border-white/40 shadow-[0_0_8px_currentColor]';
+            pktDot.className = 'absolute w-4 h-4 rounded-full border border-white/40 shadow-[0_0_8px_currentColor]';
+            // Removed shadow effects dynamically during XR handled by CSS override
             pktDot.style.transform = 'translate(-50%, -50%)';
+            
             const pktLabel = document.createElement('div');
-            pktLabel.className = 'absolute w-12 text-center text-[10px] font-bold bg-white/95 rounded text-slate-700 shadow border border-slate-200 px-1 py-[2px]';
+            pktLabel.className = 'absolute w-12 text-center text-[10px] font-bold bg-white/95 rounded text-slate-700 border border-slate-200 px-1 py-[2px]';
             pktLabel.style.transform = 'translate(-50%, 8px)';
             
             if (type.startsWith('ARP')) { pktDot.style.backgroundColor = '#fbbf24'; pktDot.style.color = '#fbbf24'; pktLabel.textContent = 'ARP'; pktLabel.style.color = '#d97706'; }
@@ -526,7 +542,6 @@
             const tickContainer = document.createElement('div');
             tickContainer.className = 'absolute z-50 pointer-events-none flex items-center justify-center';
             tickContainer.style.left = `${dev.x}px`; tickContainer.style.top = `${dev.y - 45}px`; tickContainer.style.transform = 'translate(-50%, -50%)';
-            tickContainer.style.willChange = 'transform, opacity';
             tickContainer.innerHTML = `<div class="bg-emerald-500 text-white rounded-full p-2 shadow-lg shadow-emerald-500/50"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>`;
             NETWORK_LAYER.appendChild(tickContainer);
             const animation = tickContainer.animate([{ transform: 'translate(-50%, -50%) scale(0.5)', opacity: 0 }, { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 1, offset: 0.15 }, { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0.3 }, { transform: 'translate(-50%, -80px) scale(1)', opacity: 0 }], { duration: 2500, easing: 'ease-in-out' });
@@ -609,7 +624,7 @@
                 totalPanDelta += Math.abs(dx) + Math.abs(dy);
                 lastPanClientX = e.clientX; lastPanClientY = e.clientY;
                 
-                // Keep 2D transforms to bypass WebXR layout thrashing
+                // Uses 2D translate directly to bypass WebXR layout clipping constraints
                 NETWORK_LAYER.style.transform = `translate(${panX}px, ${panY}px)`;
                 WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
@@ -849,17 +864,17 @@
                 if (dev.type === 'AP') {
                     const radius = document.createElement('div'); const size = dev.band === '2.4' ? 700 : 400;
                     radius.className = 'absolute rounded-full pointer-events-none'; radius.style.width = `${size}px`; radius.style.height = `${size}px`;
-                    radius.style.top = '50%'; radius.style.left = '50%'; radius.style.transform = 'translate(-50%, -50%)'; radius.style.willChange = 'transform, opacity';
+                    radius.style.top = '50%'; radius.style.left = '50%'; radius.style.transform = 'translate(-50%, -50%)';
                     radius.style.backgroundColor = 'rgba(34, 211, 238, 0.05)'; radius.style.border = '2px dashed rgba(34, 211, 238, 0.5)';
                     radius.style.animation = 'pulse-signal 4s infinite ease-in-out'; radius.style.zIndex = '-1'; el.appendChild(radius);
                 }
 
                 const iconDiv = document.createElement('div');
-                iconDiv.className = `node-icon w-16 h-16 rounded-xl flex items-center justify-center shadow-md border ${dev.type === 'PC' || dev.type === 'Laptop' ? 'bg-white border-slate-300 text-slate-600' : 'bg-slate-800 border-slate-900 text-white'}`;
+                iconDiv.className = `node-icon w-16 h-16 rounded-xl flex items-center justify-center border ${dev.type === 'PC' || dev.type === 'Laptop' ? 'bg-white border-slate-300 text-slate-600' : 'bg-slate-800 border-slate-900 text-white'}`;
                 if (dev.type === 'PC') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>`; else if (dev.type === 'Laptop') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg>`; else if (dev.type === 'Router') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>`; else if (dev.type === 'AP') iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>`; else iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>`;
 
                 const labelDiv = document.createElement('div');
-                labelDiv.className = 'text-sm font-semibold mt-1 text-slate-700 bg-white/90 px-2 py-0.5 rounded shadow-sm';
+                labelDiv.className = 'text-sm font-semibold mt-1 text-slate-700 bg-white/90 px-2 py-0.5 rounded';
                 labelDiv.textContent = dev.name;
                 el.appendChild(iconDiv); el.appendChild(labelDiv);
 
@@ -869,7 +884,7 @@
                         const maxDist = ap.band === '2.4' ? 350 : 200; const dist = Math.hypot(ap.x - dev.x, ap.y - dev.y);
                         const signal = Math.max(0, Math.min(100, Math.round((1 - (dist / maxDist)) * 100)));
                         const sigDiv = document.createElement('div'); sigDiv.id = `signal-${dev.id}`;
-                        sigDiv.className = `absolute top-4 right-4 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10 ${signal < 30 ? 'bg-red-500' : (signal < 60 ? 'bg-yellow-500' : 'bg-green-500')}`;
+                        sigDiv.className = `absolute top-4 right-4 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full z-10 ${signal < 30 ? 'bg-red-500' : (signal < 60 ? 'bg-yellow-500' : 'bg-green-500')}`;
                         sigDiv.textContent = `${signal}%`; el.appendChild(sigDiv);
                     }
                 }
@@ -975,7 +990,7 @@
 
         function drawPortLight(x, y, color) {
             const circle = document.createElementNS(SVG_NS, 'circle'); circle.setAttribute('cx', x); circle.setAttribute('cy', y); circle.setAttribute('r', '6');
-            circle.setAttribute('fill', color); circle.setAttribute('style', `filter: drop-shadow(0 0 4px ${color})`); CABLES_CONTAINER.appendChild(circle);
+            circle.setAttribute('fill', color); CABLES_CONTAINER.appendChild(circle);
         }
 
         window.updateLabelProp = (prop, val) => { if (selectedLabelId && labels[selectedLabelId]) { labels[selectedLabelId][prop] = val; renderNodes(); } };
