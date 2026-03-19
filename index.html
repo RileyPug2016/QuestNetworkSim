@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Network Simulator - VR Optimised</title>
+    <title>Network Simulator - True WebXR</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Custom scrollbar */
@@ -18,7 +18,7 @@
         
         .touch-none { touch-action: none; }
         
-        /* Grid background (dynamically adjustable for panning) */
+        /* Grid background */
         #workspace {
             background-color: #f8fafc;
             background-image: radial-gradient(rgba(148, 163, 184, 0.4) 2px, transparent 2px);
@@ -27,9 +27,10 @@
             transition: background-color 0.3s ease;
         }
 
-        /* MR Passthrough Mode */
-        body.mr-mode { background-color: transparent !important; }
-        #workspace.mr-mode { background-color: transparent !important; }
+        /* True WebXR Active Mode - Make backgrounds transparent for AR Passthrough */
+        .xr-active { background-color: transparent !important; }
+        .xr-active #workspace { background-color: transparent !important; }
+        .xr-active #sidebar { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
 
         #workspace.mode-addCable, #workspace.mode-addCable * {
             cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/%3E%3C/svg%3E") 12 12, crosshair !important;
@@ -59,141 +60,147 @@
         .panel-header:active { cursor: grabbing; }
     </style>
 </head>
-<body class="h-screen w-full overflow-hidden flex text-slate-800 font-sans select-none touch-none bg-slate-900 transition-colors duration-300">
+<body class="h-screen w-full overflow-hidden text-slate-800 font-sans select-none touch-none bg-slate-900 transition-colors duration-300">
 
-    <!-- Sidebar Tools -->
-    <div id="sidebar" class="w-24 bg-slate-900 border-r border-slate-700 flex flex-col items-center py-4 space-y-4 shadow-lg z-20 shrink-0 transition-colors duration-300">
-        <button onclick="setMode('select')" id="btn-select" class="p-3 w-20 flex flex-col items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-colors" title="Select / Move">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">Select</span>
-        </button>
-        <button onclick="setMode('addCable')" id="btn-addCable" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors" title="Connect Devices">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">Connect</span>
-        </button>
+    <!-- The root container required for WebXR DOM Overlay -->
+    <div id="app-container" class="w-full h-full flex relative">
+        <!-- Sidebar Tools -->
+        <div id="sidebar" class="w-24 bg-slate-900 border-r border-slate-700 flex flex-col items-center py-4 space-y-4 shadow-lg z-20 shrink-0 transition-colors duration-300">
+            <button onclick="setMode('select')" id="btn-select" class="p-3 w-20 flex flex-col items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-colors" title="Select / Move">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Select</span>
+            </button>
+            <button onclick="setMode('addCable')" id="btn-addCable" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors" title="Connect Devices">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Connect</span>
+            </button>
 
-        <div class="w-12 border-b border-slate-700 my-2"></div>
+            <div class="w-12 border-b border-slate-700 my-2"></div>
 
-        <div onpointerdown="startSidebarDrag(event, 'PC', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add PC">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">PC</span>
-        </div>
-        <div onpointerdown="startSidebarDrag(event, 'Switch', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Switch">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">Switch</span>
-        </div>
-        <div onpointerdown="startSidebarDrag(event, 'Router', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Router">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">Router</span>
-        </div>
-        <div onpointerdown="startSidebarDrag(event, 'AP', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Access Point">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">AP</span>
-        </div>
-        <div onpointerdown="startSidebarDrag(event, 'Laptop', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Laptop">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">Laptop</span>
-        </div>
+            <div onpointerdown="startSidebarDrag(event, 'PC', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add PC">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">PC</span>
+            </div>
+            <div onpointerdown="startSidebarDrag(event, 'Switch', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Switch">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Switch</span>
+            </div>
+            <div onpointerdown="startSidebarDrag(event, 'Router', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Router">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4h8l-4-4Z"/><path d="m12 16 4-4H8l4 4Z"/><path d="m8 12 4-4v8l-4-4Z"/><path d="m16 12-4 4V8l4 4Z"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Router</span>
+            </div>
+            <div onpointerdown="startSidebarDrag(event, 'AP', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Access Point">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">AP</span>
+            </div>
+            <div onpointerdown="startSidebarDrag(event, 'Laptop', this)" class="p-3 w-20 flex flex-col items-center rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-grab touch-none" title="Drag to add Laptop">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Laptop</span>
+            </div>
 
-        <div class="flex-1"></div>
-        <button onclick="clearNetwork()" class="p-3 w-20 flex flex-col items-center rounded-xl text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors" title="Clear Network">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-            <span class="text-[10px] font-bold uppercase tracking-wide">Clear</span>
-        </button>
-    </div>
-
-    <!-- Main Workspace -->
-    <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
-        <!-- Panning Container -->
-        <div id="network-layer" class="absolute inset-0 w-full h-full transform-gpu origin-top-left pointer-events-none">
-            <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
-            <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
+            <div class="flex-1"></div>
+            <button onclick="clearNetwork()" class="p-3 w-20 flex flex-col items-center rounded-xl text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors" title="Clear Network">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                <span class="text-[10px] font-bold uppercase tracking-wide">Clear</span>
+            </button>
         </div>
 
-        <!-- Floating Network Console -->
-        <div id="floating-console" class="absolute top-4 left-4 w-80 bg-slate-900 rounded-lg shadow-2xl z-40 flex flex-col border border-slate-700 overflow-hidden" style="touch-action: auto;">
-            <div class="px-3 py-2 bg-slate-800 flex justify-between items-center touch-none panel-header" onpointerdown="initPanelDrag(event, 'floating-console')">
-                <div class="flex items-center space-x-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
-                    <span class="text-xs font-semibold text-slate-300 tracking-wider">NETWORK CONSOLE</span>
+        <!-- Main Workspace -->
+        <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
+            <!-- Panning Container -->
+            <div id="network-layer" class="absolute inset-0 w-full h-full transform-gpu origin-top-left pointer-events-none">
+                <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
+                <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
+            </div>
+
+            <!-- Floating Network Console -->
+            <div id="floating-console" class="absolute top-4 left-4 w-80 bg-slate-900 rounded-lg shadow-2xl z-40 flex flex-col border border-slate-700 overflow-hidden" style="touch-action: auto;">
+                <div class="px-3 py-2 bg-slate-800 flex justify-between items-center touch-none panel-header" onpointerdown="initPanelDrag(event, 'floating-console')">
+                    <div class="flex items-center space-x-2 pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                        <span class="text-xs font-semibold text-slate-300 tracking-wider">NETWORK CONSOLE</span>
+                    </div>
+                    <button onclick="toggleConsole()" class="p-2 hover:bg-slate-700 rounded transition-colors -mr-2 cursor-pointer pointer-events-auto">
+                        <svg id="console-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300 -rotate-90"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
                 </div>
-                <button onclick="toggleConsole()" class="p-2 hover:bg-slate-700 rounded transition-colors -mr-2 cursor-pointer pointer-events-auto">
-                    <svg id="console-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300 -rotate-90"><path d="m6 9 6 6 6-6"/></svg>
+                <div id="console-output" class="h-32 overflow-y-auto p-3 text-xs font-mono text-green-400 space-y-1 select-text hidden pointer-events-auto">
+                    <div>> System initialised.</div>
+                </div>
+            </div>
+
+            <!-- STP Toggle Button -->
+            <div class="absolute top-4 left-[344px] z-30 pointer-events-auto">
+                <button id="btn-stp" onclick="toggleSTP()" class="px-6 py-3 bg-slate-800 text-slate-300 font-bold text-sm rounded-lg shadow-lg border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors flex items-center" title="Toggle Spanning Tree Protocol">
+                    <span>STP: OFF</span>
                 </button>
             </div>
-            <div id="console-output" class="h-32 overflow-y-auto p-3 text-xs font-mono text-green-400 space-y-1 select-text hidden">
-                <div>> System initialised.</div>
+
+            <!-- Bottom Left Toolbar -->
+            <div id="bottom-toolbar" class="absolute bottom-6 left-6 z-30 flex items-center space-x-2 bg-slate-900 p-2 rounded-xl shadow-2xl border border-slate-700 pointer-events-auto">
+                <button onclick="setMode('addText')" id="btn-addText" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Add Text Annotation">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/></svg>
+                </button>
+                <div class="w-px h-8 bg-slate-700 mx-1"></div>
+                
+                <!-- TRUE WEBXR IMMERSIVE TOGGLE -->
+                <button onclick="toggleWebXR()" id="btn-xr" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-cyan-400 transition-colors" title="Enter WebXR Immersive (Direct Finger Control)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.42 10.922a2 2 0 0 1-.006 2.163A11.967 11.967 0 0 1 12 19c-3.14 0-5.99-1.21-8.15-3.197"/><path d="M2.583 13.085a2 2 0 0 1 .006-2.167A11.967 11.967 0 0 1 12 5c3.14 0 5.99 1.21 8.15 3.197"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+                <div class="w-px h-8 bg-slate-700 mx-1"></div>
+
+                <button onclick="saveTopology()" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Save Topology">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                </button>
+                <button onclick="document.getElementById('file-upload').click()" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Load Topology">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2-2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                </button>
+                <input type="file" id="file-upload" class="hidden" accept=".json" onchange="loadTopology(event)">
             </div>
-        </div>
 
-        <!-- STP Toggle Button -->
-        <div class="absolute top-4 left-[344px] z-30 pointer-events-auto">
-            <button id="btn-stp" onclick="toggleSTP()" class="px-6 py-3 bg-slate-800 text-slate-300 font-bold text-sm rounded-lg shadow-lg border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors flex items-center" title="Toggle Spanning Tree Protocol">
-                <span>STP: OFF</span>
-            </button>
-        </div>
-
-        <!-- Bottom Left Toolbar (Text, MR, Save, Load) -->
-        <div id="bottom-toolbar" class="absolute bottom-6 left-6 z-30 flex items-center space-x-2 bg-slate-900 p-2 rounded-xl shadow-2xl border border-slate-700 pointer-events-auto">
-            <button onclick="setMode('addText')" id="btn-addText" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Add Text Annotation">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 6.1H3"/><path d="M21 12.1H3"/><path d="M15.1 18H3"/></svg>
-            </button>
-            <div class="w-px h-8 bg-slate-700 mx-1"></div>
+            <!-- Floating Ping Tool -->
+            <div id="floating-ping" class="absolute top-4 right-4 w-80 bg-white rounded-xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] z-40 flex flex-col border border-slate-200 overflow-hidden" style="touch-action: auto;">
+                <div class="px-4 py-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center touch-none panel-header" onpointerdown="initPanelDrag(event, 'floating-ping')">
+                    <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2 pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                        <span>Ping Tool</span>
+                    </h3>
+                </div>
+                <div class="p-4 bg-white space-y-3 pointer-events-auto">
+                    <div class="flex flex-col space-y-2">
+                        <select id="ping-source" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer">
+                            <option value="">Select Source...</option>
+                        </select>
+                        <select id="ping-target" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer">
+                            <option value="">Select Destination...</option>
+                        </select>
+                    </div>
+                    <button onclick="executePing()" class="w-full py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-700 transition shadow-sm">Send Ping</button>
+                </div>
+            </div>
             
-            <!-- VR OPTIMISED: Mixed Reality Passthrough Toggle -->
-            <button onclick="toggleMRMode()" id="btn-mr" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-purple-400 transition-colors" title="Toggle Mixed Reality Passthrough">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
-            </button>
-            <div class="w-px h-8 bg-slate-700 mx-1"></div>
-
-            <button onclick="saveTopology()" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Save Topology">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            </button>
-            <button onclick="document.getElementById('file-upload').click()" class="p-3 text-slate-400 rounded-lg hover:bg-slate-700 hover:text-white transition-colors" title="Load Topology">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2-2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-            </button>
-            <input type="file" id="file-upload" class="hidden" accept=".json" onchange="loadTopology(event)">
-        </div>
-
-        <!-- Floating Ping Tool -->
-        <div id="floating-ping" class="absolute top-4 right-4 w-80 bg-white rounded-xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] z-40 flex flex-col border border-slate-200 overflow-hidden" style="touch-action: auto;">
-            <div class="px-4 py-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center touch-none panel-header" onpointerdown="initPanelDrag(event, 'floating-ping')">
-                <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
-                    <span>Ping Tool</span>
-                </h3>
-            </div>
-            <div class="p-4 bg-white space-y-3 pointer-events-auto">
-                <div class="flex flex-col space-y-2">
-                    <select id="ping-source" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer">
-                        <option value="">Select Source...</option>
-                    </select>
-                    <select id="ping-target" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer">
-                        <option value="">Select Destination...</option>
-                    </select>
+            <!-- Floating Properties Panel -->
+            <div id="floating-properties" class="hidden absolute top-48 right-4 w-[340px] bg-white rounded-xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] z-40 flex flex-col border border-slate-200 max-h-[calc(100vh-10rem)]" style="touch-action: auto;">
+                <div class="px-4 py-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center touch-none panel-header rounded-t-xl" onpointerdown="initPanelDrag(event, 'floating-properties')">
+                    <h2 id="prop-title" class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2 pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                        <span>Properties</span>
+                    </h2>
+                    <button onclick="closeProperties()" class="p-2 -mr-2 text-slate-400 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors cursor-pointer pointer-events-auto" title="Close Properties">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
                 </div>
-                <button onclick="executePing()" class="w-full py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-700 transition shadow-sm">Send Ping</button>
+                <div class="flex-1 overflow-y-auto p-5 bg-white rounded-b-xl pointer-events-auto" id="properties-panel"></div>
             </div>
-        </div>
-        
-        <!-- Floating Properties Panel -->
-        <div id="floating-properties" class="hidden absolute top-48 right-4 w-[340px] bg-white rounded-xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] z-40 flex flex-col border border-slate-200 max-h-[calc(100vh-10rem)]" style="touch-action: auto;">
-            <div class="px-4 py-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center touch-none panel-header rounded-t-xl" onpointerdown="initPanelDrag(event, 'floating-properties')">
-                <h2 id="prop-title" class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2 pointer-events-none">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
-                    <span>Properties</span>
-                </h2>
-                <button onclick="closeProperties()" class="p-2 -mr-2 text-slate-400 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors cursor-pointer pointer-events-auto" title="Close Properties">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                </button>
-            </div>
-            <div class="flex-1 overflow-y-auto p-5 bg-white rounded-b-xl pointer-events-auto" id="properties-panel"></div>
-        </div>
 
-        <!-- Port Selector Menu -->
-        <div id="port-selector" class="hidden absolute bg-slate-900 text-white rounded-lg shadow-2xl border border-slate-700 z-50 py-1 text-sm font-mono min-w-[120px] overflow-hidden pointer-events-auto">
+            <!-- Port Selector Menu -->
+            <div id="port-selector" class="hidden absolute bg-slate-900 text-white rounded-lg shadow-2xl border border-slate-700 z-50 py-1 text-sm font-mono min-w-[120px] overflow-hidden pointer-events-auto">
+            </div>
         </div>
     </div>
+    
+    <!-- Hidden Canvas to bind WebGL processing for WebXR Session -->
+    <canvas id="xr-canvas" class="hidden"></canvas>
 
     <script>
         // --- Core State & Models ---
@@ -218,8 +225,7 @@
         let isWorkspacePanning = false;
         let lastPanClientX = 0;
         let lastPanClientY = 0;
-        let totalPanDelta = 0; // Used to prevent click triggering after a drag
-        let isMRMode = false;
+        let totalPanDelta = 0;
         
         // VR UI State
         let ghostEl = null;
@@ -229,13 +235,88 @@
         let activePanel = null;
         let panelDragOffset = { x: 0, y: 0 };
 
+        // TRUE WEBXR STATE
+        let xrSession = null;
+        let xrGlContext = null;
+
         const SVG_NS = "http://www.w3.org/2000/svg";
+        const APP_CONTAINER = document.getElementById('app-container');
         const WORKSPACE = document.getElementById('workspace');
         const NETWORK_LAYER = document.getElementById('network-layer');
         const NODES_CONTAINER = document.getElementById('nodes');
         const CABLES_CONTAINER = document.getElementById('cables');
         const CONSOLE = document.getElementById('console-output');
         const PROP_PANEL = document.getElementById('properties-panel');
+
+        // --- TRUE WEBXR: DOM OVERLAY LOGIC ---
+        async function initWebXR() {
+            if (!navigator.xr) {
+                log("WebXR is not supported in this browser.", "error");
+                return;
+            }
+            
+            const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
+            if (!isSupported) {
+                log("Immersive AR is not supported on this device.", "error");
+                return;
+            }
+
+            try {
+                // Request Immersive AR with DOM Overlay targeting our app wrapper
+                xrSession = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['local-floor'],
+                    optionalFeatures: ['dom-overlay', 'hand-tracking'],
+                    domOverlay: { root: document.getElementById('app-container') }
+                });
+
+                xrSession.addEventListener('end', onXREnded);
+                
+                // A WebGL context is mandatory to keep the compositor alive, even if empty.
+                const canvas = document.getElementById('xr-canvas');
+                xrGlContext = canvas.getContext('webgl', { xrCompatible: true });
+                xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext) });
+                xrSession.requestAnimationFrame(onXRFrame);
+                
+                // Visual updates
+                document.getElementById('app-container').classList.add('xr-active');
+                const btn = document.getElementById('btn-xr');
+                btn.classList.add('text-cyan-400', 'bg-slate-800');
+                btn.classList.remove('text-slate-400');
+                
+                log("Entered WebXR Immersive Session. Walk up to the interface to use your hands.", "success");
+            } catch (err) {
+                log(`WebXR Session failed: ${err.message}`, "error");
+            }
+        }
+
+        function onXREnded() {
+            xrSession = null;
+            document.getElementById('app-container').classList.remove('xr-active');
+            const btn = document.getElementById('btn-xr');
+            btn.classList.remove('text-cyan-400', 'bg-slate-800');
+            btn.classList.add('text-slate-400');
+            log("Exited WebXR Session.", "info");
+        }
+
+        function onXRFrame(time, frame) {
+            if (!xrSession) return;
+            xrSession.requestAnimationFrame(onXRFrame);
+            // Clear the WebGL canvas so the camera passthrough shows up behind the DOM
+            xrGlContext.clearColor(0, 0, 0, 0);
+            xrGlContext.clear(xrGlContext.COLOR_BUFFER_BIT | xrGlContext.DEPTH_BUFFER_BIT);
+        }
+
+        window.toggleWebXR = () => {
+            if (xrSession) xrSession.end();
+            else initWebXR();
+        };
+
+        // Check WebXR capability on load to inform user
+        if (navigator.xr) {
+            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                if (!supported) document.getElementById('btn-xr').style.opacity = '0.5';
+            });
+        }
 
         // --- VR OPTIMISED: Haptic Feedback Engine ---
         function triggerHaptic(intensity = 0.6, duration = 40) {
@@ -244,11 +325,8 @@
                 for (let gp of gamepads) {
                     if (gp && gp.vibrationActuator) {
                         gp.vibrationActuator.playEffect("dual-rumble", {
-                            startDelay: 0,
-                            duration: duration,
-                            weakMagnitude: intensity,
-                            strongMagnitude: intensity
-                        }).catch(e => {}); // Fail silently on non-supported browsers
+                            startDelay: 0, duration: duration, weakMagnitude: intensity, strongMagnitude: intensity
+                        }).catch(e => {}); 
                     }
                 }
             } catch (e) {}
@@ -298,7 +376,7 @@
                         if (laptop.port) window.deleteLink(laptop.port, true);
                         const linkId = generateId(); links[linkId] = { id: linkId, source: laptop.id, target: bestAp.id, sourcePort: 'wlan0', targetPort: linkId, isWireless: true };
                         laptop.port = linkId; laptop.connectedApId = bestAp.id;
-                        triggerHaptic(0.4, 50); // Haptic on connect
+                        triggerHaptic(0.4, 50);
                         log(`[${laptop.name}] Associated with AP '${bestAp.ssid}' (${bestDist.toFixed(0)}px).`, 'success'); changed = true;
                     }
                 } else {
@@ -431,7 +509,7 @@
         }
 
         function showSuccessTick(deviceId) {
-            triggerHaptic(0.8, 100); // Big haptic pulse on success
+            triggerHaptic(0.8, 100); 
             const dev = devices[deviceId]; if (!dev) return;
             const tickContainer = document.createElement('div');
             tickContainer.className = 'absolute z-50 pointer-events-none flex items-center justify-center';
@@ -490,18 +568,17 @@
             ghostEl.className = 'fixed z-50 pointer-events-none opacity-80 scale-125 bg-slate-800 p-3 rounded-xl shadow-2xl text-white flex flex-col items-center justify-center';
             ghostEl.innerHTML = el.innerHTML; document.body.appendChild(ghostEl);
             moveGhost(e.clientX, e.clientY);
-            triggerHaptic(0.2, 30); // Tiny haptic pulse when picking a tool up
+            triggerHaptic(0.2, 30); 
         };
 
         const moveGhost = (x, y) => { if (ghostEl) { ghostEl.style.left = `${x}px`; ghostEl.style.top = `${y}px`; ghostEl.style.transform = 'translate(-50%, -50%)'; } };
 
         window.spawnDevice = (type, x, y) => {
             if (type === 'PC') { const pc = new PC(x, y); devices[pc.id] = pc; } else if (type === 'Laptop') { const lap = new Laptop(x, y); devices[lap.id] = lap; } else if (type === 'Switch') { const sw = new Switch(x, y); devices[sw.id] = sw; } else if (type === 'Router') { const r = new Router(x, y); devices[r.id] = r; } else if (type === 'AP') { const ap = new AccessPoint(x, y); devices[ap.id] = ap; }
-            triggerHaptic(0.5, 40); // Solid thud when dropping
+            triggerHaptic(0.5, 40); 
             renderNodes();
         };
 
-        // VR OPTIMISED: Canvas Panning Handlers
         WORKSPACE.addEventListener('pointerdown', (e) => {
             if (e.target === WORKSPACE) {
                 isWorkspacePanning = true;
@@ -513,29 +590,22 @@
         });
 
         window.addEventListener('pointermove', (e) => {
-            // Dragging Canvas (Panning)
             if (isWorkspacePanning) {
                 const dx = e.clientX - lastPanClientX;
                 const dy = e.clientY - lastPanClientY;
                 panX += dx; panY += dy;
                 totalPanDelta += Math.abs(dx) + Math.abs(dy);
                 lastPanClientX = e.clientX; lastPanClientY = e.clientY;
-                
                 NETWORK_LAYER.style.transform = `translate3d(${panX}px, ${panY}px, 0)`;
                 WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
             }
 
-            // Dragging Floating UI Panels
             if (activePanel) { activePanel.style.left = `${e.clientX - panelDragOffset.x}px`; activePanel.style.top = `${e.clientY - panelDragOffset.y}px`; return; }
-
-            // Dragging new device from sidebar
             if (ghostEl) moveGhost(e.clientX, e.clientY);
 
-            // Dragging existing node
             if (dragInfo && currentMode === 'select') {
                 const rect = WORKSPACE.getBoundingClientRect();
-                // VR Coordinate Math: Offset by the current canvas pan
                 currentMouseX = e.clientX - rect.left - panX;
                 currentMouseY = e.clientY - rect.top - panY;
 
@@ -571,17 +641,14 @@
         });
 
         window.addEventListener('pointerup', (e) => {
-            // End Canvas Panning
             if (isWorkspacePanning) {
                 isWorkspacePanning = false;
                 WORKSPACE.releasePointerCapture(e.pointerId);
-                // The actual click handler handles totalPanDelta to ignore accidental clicks
                 return;
             }
 
             if (activePanel) { activePanel.releasePointerCapture(e.pointerId); activePanel = null; return; }
 
-            // Drop a new node
             if (ghostEl) {
                 const rect = WORKSPACE.getBoundingClientRect();
                 if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
@@ -595,7 +662,6 @@
         });
 
         // --- UI Interactions ---
-
         window.toggleSTP = () => {
             stpEnabled = !stpEnabled; const btn = document.getElementById('btn-stp');
             if (stpEnabled) { btn.innerHTML = '<span>STP: ON</span>'; btn.classList.replace('bg-slate-800', 'bg-emerald-600'); btn.classList.replace('text-slate-300', 'text-white'); btn.classList.replace('border-slate-700', 'border-emerald-500'); btn.classList.replace('hover:bg-slate-700', 'hover:bg-emerald-500'); calculateSTP(); } 
@@ -608,28 +674,6 @@
             if (!output.classList.contains('hidden')) output.scrollTop = output.scrollHeight;
         };
         
-        // VR OPTIMISED: Mixed Reality Passthrough Toggle
-        window.toggleMRMode = () => {
-            isMRMode = !isMRMode;
-            const btn = document.getElementById('btn-mr');
-            const sidebar = document.getElementById('sidebar');
-            if (isMRMode) {
-                document.body.classList.add('mr-mode');
-                WORKSPACE.classList.add('mr-mode');
-                sidebar.classList.replace('bg-slate-900', 'bg-slate-900/80'); // Slight transparency to tools
-                btn.classList.add('text-purple-400', 'bg-slate-800');
-                btn.classList.remove('text-slate-400');
-                log("Mixed Reality Passthrough Enabled.", "success");
-            } else {
-                document.body.classList.remove('mr-mode');
-                WORKSPACE.classList.remove('mr-mode');
-                sidebar.classList.replace('bg-slate-900/80', 'bg-slate-900');
-                btn.classList.remove('text-purple-400', 'bg-slate-800');
-                btn.classList.add('text-slate-400');
-                log("Mixed Reality Passthrough Disabled.", "info");
-            }
-        };
-
         function setMode(mode) {
             currentMode = mode; pendingCableSource = null; pendingCableSourcePort = null; hidePortSelector();
             if (mode === 'addCable') WORKSPACE.classList.add('mode-addCable'); else WORKSPACE.classList.remove('mode-addCable');
@@ -663,11 +707,7 @@
         WORKSPACE.addEventListener('pointerup', (e) => {
             if (ghostEl || dragInfo || activePanel) return; 
             
-            // Ignore clicks if we just finished panning
-            if (totalPanDelta > 15) {
-                totalPanDelta = 0;
-                return;
-            }
+            if (totalPanDelta > 15) { totalPanDelta = 0; return; }
 
             if (e.target.closest('.device-node') || e.target.closest('.text-label-node') || e.target.closest('#port-selector') || e.target.closest('#floating-console') || e.target.closest('#floating-ping') || e.target.closest('#floating-properties') || e.target.closest('#bottom-toolbar')) return; 
             
@@ -683,7 +723,7 @@
         function handleNodeClick(e, id, type = 'Device') {
             if (currentMode === 'select') {
                 if (type === 'Device') { selectedDeviceId = id; selectedLabelId = null; } else if (type === 'Label') { selectedLabelId = id; selectedDeviceId = null; }
-                triggerHaptic(0.1, 20); // Small feedback on select
+                triggerHaptic(0.1, 20); 
                 updatePropertiesPanel(); renderNodes();
             } else if (currentMode === 'addCable' && type === 'Device') {
                 const dev = devices[id]; const rect = WORKSPACE.getBoundingClientRect(); if (dev.type === 'Laptop') return; 
@@ -712,7 +752,7 @@
             if (devA.type === 'Router') { devA.updateConnectedRoutes(); devA.ripBroadcastCount = 0; }
             if (devB.type === 'Router') { devB.updateConnectedRoutes(); devB.ripBroadcastCount = 0; }
             
-            triggerHaptic(0.6, 60); // Solid click when cable connects
+            triggerHaptic(0.6, 60); 
             if (stpEnabled) calculateSTP(); else { renderLinks(); if (selectedDeviceId) updatePropertiesPanel(); }
         }
 
