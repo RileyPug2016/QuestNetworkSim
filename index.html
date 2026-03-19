@@ -28,7 +28,7 @@
         }
 
         /* True WebXR Active Mode - Make backgrounds transparent for AR Passthrough */
-        body.xr-active { background-color: transparent !important; }
+        html.xr-active, body.xr-active { background-color: transparent !important; background: transparent !important; }
         body.xr-active #app-container { background-color: transparent !important; }
         body.xr-active #workspace { background-color: transparent !important; }
         body.xr-active #sidebar { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
@@ -109,9 +109,9 @@
         <!-- Main Workspace -->
         <div class="flex-1 relative touch-none cursor-grab active:cursor-grabbing" id="workspace">
             <!-- Panning Container -->
-            <div id="network-layer" class="absolute w-full h-full pointer-events-none" style="left: 0px; top: 0px; z-index: 10;">
+            <div id="network-layer" class="absolute inset-0 w-full h-full pointer-events-none overflow-visible" style="z-index: 10; transform: translate(0px, 0px);">
                 <svg id="cables" class="absolute inset-0 w-full h-full overflow-visible pointer-events-none"></svg>
-                <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none"></div>
+                <div id="nodes" class="absolute inset-0 w-full h-full pointer-events-none overflow-visible"></div>
             </div>
 
             <!-- Floating Network Console -->
@@ -279,11 +279,13 @@
                     document.body.appendChild(canvas);
                 }
                 
-                xrGlContext = canvas.getContext('webgl', { xrCompatible: true });
-                xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext) });
+                // XR Compositor Fix: alpha MUST be true, or WebGL creates an opaque black layer over the topology
+                xrGlContext = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
+                xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext, { alpha: true }) });
                 xrSession.requestAnimationFrame(onXRFrame);
                 
                 // Visual updates
+                document.documentElement.classList.add('xr-active');
                 document.body.classList.add('xr-active');
                 const btn = document.getElementById('btn-xr');
                 btn.classList.add('text-cyan-400', 'bg-slate-800');
@@ -297,6 +299,7 @@
 
         function onXREnded() {
             xrSession = null;
+            document.documentElement.classList.remove('xr-active');
             document.body.classList.remove('xr-active');
             const btn = document.getElementById('btn-xr');
             btn.classList.remove('text-cyan-400', 'bg-slate-800');
@@ -603,9 +606,8 @@
                 totalPanDelta += Math.abs(dx) + Math.abs(dy);
                 lastPanClientX = e.clientX; lastPanClientY = e.clientY;
                 
-                // Use explicit left/top instead of transform to prevent WebXR DOM overlay clipping
-                NETWORK_LAYER.style.left = `${panX}px`;
-                NETWORK_LAYER.style.top = `${panY}px`;
+                // XR Compositor Fix: Use 2D transform to prevent layout thrashing and clipping
+                NETWORK_LAYER.style.transform = `translate(${panX}px, ${panY}px)`;
                 WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
             }
@@ -1072,7 +1074,7 @@
             if (!icmpReplied) { log(`[${pc.name}] Request timed out.`, 'error'); triggerHaptic(0.5, 100); } else showSuccessTick(pc.id);
         };
 
-        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.left = `0px`; NETWORK_LAYER.style.top = `0px`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
+        window.clearNetwork = () => { devices = {}; links = {}; labels = {}; selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1 }; CONSOLE.innerHTML = '<div>> Network cleared.</div>'; hidePortSelector(); renderNodes(); renderLinks(); updatePropertiesPanel(); panX = 0; panY = 0; NETWORK_LAYER.style.transform = `translate(0px, 0px)`; WORKSPACE.style.backgroundPosition = `0px 0px`; triggerHaptic(0.6, 60); };
 
         renderNodes();
     </script>
