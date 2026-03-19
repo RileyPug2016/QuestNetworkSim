@@ -29,9 +29,9 @@
 
         /* True WebXR Active Mode - Make backgrounds transparent for AR Passthrough */
         html.xr-active, body.xr-active { background-color: transparent !important; background: transparent !important; }
-        body.xr-active #app-container { background-color: transparent !important; }
-        body.xr-active #workspace { background-color: transparent !important; }
-        body.xr-active #sidebar { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
+        #app-container.xr-active { background-color: transparent !important; }
+        #workspace.xr-active { background-color: transparent !important; }
+        #sidebar.xr-active { background-color: rgba(15, 23, 42, 0.85) !important; backdrop-filter: blur(8px); }
 
         #workspace.mode-addCable, #workspace.mode-addCable * {
             cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/%3E%3C/svg%3E") 12 12, crosshair !important;
@@ -63,8 +63,11 @@
 </head>
 <body class="h-screen w-full overflow-hidden text-slate-800 font-sans select-none touch-none bg-slate-900 transition-colors duration-300">
 
+    <!-- Hidden Canvas explicitly separated from the DOM overlay root to prevent compositor culling -->
+    <canvas id="xr-canvas" class="fixed top-0 left-0 w-full h-full pointer-events-none opacity-0" style="z-index: -1;"></canvas>
+
     <!-- The root container required for WebXR DOM Overlay -->
-    <div id="app-container" class="w-full h-full flex relative">
+    <div id="app-container" class="w-full h-full flex relative bg-slate-900 transition-colors duration-300">
         <!-- Sidebar Tools -->
         <div id="sidebar" class="w-24 bg-slate-900 border-r border-slate-700 flex flex-col items-center py-4 space-y-4 shadow-lg z-20 shrink-0 transition-colors duration-300">
             <button onclick="setMode('select')" id="btn-select" class="p-3 w-20 flex flex-col items-center rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition-colors" title="Select / Move">
@@ -260,40 +263,37 @@
             }
 
             try {
-                // Request Immersive AR with DOM Overlay targeting the body directly
+                // Request Immersive AR with DOM Overlay. Require dom-overlay to strictly guarantee UI generation.
                 xrSession = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['local-floor'],
-                    optionalFeatures: ['dom-overlay', 'hand-tracking'],
-                    domOverlay: { root: document.body }
+                    requiredFeatures: ['local-floor', 'dom-overlay'],
+                    optionalFeatures: ['hand-tracking'],
+                    domOverlay: { root: document.getElementById('app-container') }
                 });
 
                 xrSession.addEventListener('end', onXREnded);
                 
-                // A WebGL context is mandatory to keep the compositor alive. 
-                // Appending it to the DOM (hidden) prevents Quest rendering culls.
-                let canvas = document.getElementById('xr-canvas-bg');
-                if (!canvas) {
-                    canvas = document.createElement('canvas');
-                    canvas.id = 'xr-canvas-bg';
-                    canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -9999; opacity: 0; pointer-events: none;';
-                    document.body.appendChild(canvas);
-                }
+                // Initialize the external WebGL canvas correctly with alpha transparency
+                const canvas = document.getElementById('xr-canvas');
+                xrGlContext = canvas.getContext('webgl2', { alpha: true, xrCompatible: true }) || canvas.getContext('webgl', { alpha: true, xrCompatible: true });
                 
-                // XR Compositor Fix: alpha MUST be true, or WebGL creates an opaque black layer over the topology
-                xrGlContext = canvas.getContext('webgl', { xrCompatible: true, alpha: true });
+                // Update render state to ensure alpha channel is maintained
                 xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlContext, { alpha: true }) });
                 xrSession.requestAnimationFrame(onXRFrame);
                 
-                // Visual updates
+                // Visual updates: Explicitly clear background layers so the Passthrough camera is visible
                 document.documentElement.classList.add('xr-active');
                 document.body.classList.add('xr-active');
+                document.getElementById('app-container').classList.add('xr-active');
+                document.getElementById('workspace').classList.add('xr-active');
+                document.getElementById('sidebar').classList.add('xr-active');
+                
                 const btn = document.getElementById('btn-xr');
                 btn.classList.add('text-cyan-400', 'bg-slate-800');
                 btn.classList.remove('text-slate-400');
                 
                 log("Entered WebXR Immersive Session. Walk up to the interface to use your hands.", "success");
             } catch (err) {
-                log(`WebXR Session failed: ${err.message}`, "error");
+                log(`WebXR Session failed: ${err.message}. Ensure DOM overlay is permitted.`, "error");
             }
         }
 
@@ -301,6 +301,10 @@
             xrSession = null;
             document.documentElement.classList.remove('xr-active');
             document.body.classList.remove('xr-active');
+            document.getElementById('app-container').classList.remove('xr-active');
+            document.getElementById('workspace').classList.remove('xr-active');
+            document.getElementById('sidebar').classList.remove('xr-active');
+            
             const btn = document.getElementById('btn-xr');
             btn.classList.remove('text-cyan-400', 'bg-slate-800');
             btn.classList.add('text-slate-400');
@@ -310,7 +314,7 @@
         function onXRFrame(time, frame) {
             if (!xrSession) return;
             xrSession.requestAnimationFrame(onXRFrame);
-            // Clear the WebGL canvas so the camera passthrough shows up behind the DOM
+            // Continually clear the WebGL background to fully transparent
             xrGlContext.clearColor(0, 0, 0, 0);
             xrGlContext.clear(xrGlContext.COLOR_BUFFER_BIT | xrGlContext.DEPTH_BUFFER_BIT);
         }
@@ -486,7 +490,6 @@
         async function animatePacket(sourceDevice, targetDevice, type, link) {
             const pktContainer = document.createElement('div');
             pktContainer.className = 'absolute top-0 left-0 z-50 pointer-events-none';
-            // Removed pktContainer.style.willChange = 'transform'; to prevent WebXR layer culling
             
             const pktDot = document.createElement('div');
             pktDot.className = 'absolute w-4 h-4 rounded-full shadow-md border border-white/40 shadow-[0_0_8px_currentColor]';
@@ -606,7 +609,7 @@
                 totalPanDelta += Math.abs(dx) + Math.abs(dy);
                 lastPanClientX = e.clientX; lastPanClientY = e.clientY;
                 
-                // XR Compositor Fix: Use 2D transform to prevent layout thrashing and clipping
+                // Keep 2D transforms to bypass WebXR layout thrashing
                 NETWORK_LAYER.style.transform = `translate(${panX}px, ${panY}px)`;
                 WORKSPACE.style.backgroundPosition = `${panX}px ${panY}px`;
                 return;
@@ -841,7 +844,6 @@
                 const dev = devices[id];
                 const el = document.createElement('div');
                 el.className = `device-node absolute pointer-events-auto flex flex-col items-center justify-center w-32 h-32 -ml-16 -mt-16 cursor-pointer touch-none ${id === selectedDeviceId ? 'selected-node' : ''} ${id === pendingCableSource ? 'pending-connection' : ''}`;
-                // Removed isolation: isolate which breaks WebXR DOM overlay depth sorting
                 el.style.left = `${dev.x}px`; el.style.top = `${dev.y}px`; el.style.zIndex = '15'; el.setAttribute('data-id', id);
 
                 if (dev.type === 'AP') {
@@ -974,54 +976,6 @@
         function drawPortLight(x, y, color) {
             const circle = document.createElementNS(SVG_NS, 'circle'); circle.setAttribute('cx', x); circle.setAttribute('cy', y); circle.setAttribute('r', '6');
             circle.setAttribute('fill', color); circle.setAttribute('style', `filter: drop-shadow(0 0 4px ${color})`); CABLES_CONTAINER.appendChild(circle);
-        }
-
-        window.loadTopology = (event) => {
-            const file = event.target.files[0]; if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const data = JSON.parse(e.target.result); devices = {};
-                    for (let id in data.devices) { const d = data.devices[id]; let instance; if (d.type === 'PC') instance = new PC(d.x, d.y); else if (d.type === 'Laptop') instance = new Laptop(d.x, d.y); else if (d.type === 'Switch') instance = new Switch(d.x, d.y); else if (d.type === 'Router') instance = new Router(d.x, d.y); else if (d.type === 'AP') instance = new AccessPoint(d.x, d.y); Object.assign(instance, d); devices[id] = instance; }
-                    links = data.links || {}; labels = data.labels || {}; deviceCounter = { PC: 1, Switch: 1, Router: 1, AP: 1, Laptop: 1, ...(data.deviceCounter || {}) };
-                    if (data.stpEnabled !== undefined && data.stpEnabled !== stpEnabled) toggleSTP(); 
-                    selectedDeviceId = null; selectedLabelId = null; pendingCableSource = null; pendingCableSourcePort = null;
-                    flushMacTables(); renderNodes(); if (stpEnabled) calculateSTP(); else renderLinks(); updatePropertiesPanel();
-                    panX = 0; panY = 0; NETWORK_LAYER.style.left = `0px`; NETWORK_LAYER.style.top = `0px`; WORKSPACE.style.backgroundPosition = `0px 0px`;
-                } catch (err) {}
-            };
-            reader.readAsText(file); event.target.value = ''; 
-        };
-
-        // --- Properties Panel ---
-        function updatePropertiesPanel() {
-            const floatingPanel = document.getElementById('floating-properties'); const titleEl = document.getElementById('prop-title');
-            if (!selectedDeviceId && !selectedLabelId) { floatingPanel.classList.add('hidden'); return; }
-            floatingPanel.classList.remove('hidden');
-
-            if (selectedLabelId) {
-                const lbl = labels[selectedLabelId]; titleEl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg><span>Text Annotation</span>`;
-                PROP_PANEL.innerHTML = `<div class="flex justify-end items-center mb-4"><button onclick="deleteSelected()" class="text-xs text-red-500 font-semibold hover:bg-red-50 hover:text-red-600 px-4 py-2 rounded transition-colors">Delete Text</button></div><div class="space-y-4"><div><label class="block text-xs font-semibold text-slate-500 mb-1">Content</label><textarea id="prop-text-content" rows="4" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50" oninput="updateLabelProp('text', this.value)">${lbl.text}</textarea></div></div>`;
-                return;
-            }
-
-            const dev = devices[selectedDeviceId]; titleEl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg><span>${dev.name} Settings</span>`;
-            let html = `<div class="flex justify-end items-center mb-4"><button onclick="deleteSelected()" class="text-xs text-red-500 font-semibold hover:bg-red-50 hover:text-red-600 px-4 py-2 rounded transition-colors">Delete Node</button></div><div class="space-y-4"><div><label class="block text-xs font-semibold text-slate-500 mb-1">MAC Address</label><div class="px-3 py-2 bg-slate-100 rounded-lg text-sm text-slate-600 font-mono border border-slate-200">${dev.mac}</div></div>`;
-
-            if (dev.type === 'PC' || dev.type === 'Laptop') {
-                html += `<div class="space-y-3"><div><label class="block text-xs font-semibold text-slate-500 mb-1">IP Address</label><input type="text" id="prop-ip" value="${dev.ip}" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"></div><div><label class="block text-xs font-semibold text-slate-500 mb-1">Subnet Mask</label><input type="text" id="prop-sub" value="${dev.subnet}" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"></div><div><label class="block text-xs font-semibold text-slate-500 mb-1">Default Gateway</label><input type="text" id="prop-gw" value="${dev.gateway}" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"></div><button onclick="savePCSettings('${dev.id}')" id="btn-save-pc" class="w-full py-3 mt-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold transition-colors shadow-sm">Save Settings</button></div>`;
-                if (dev.type === 'Laptop') {
-                    html += `<div class="pt-4 border-t mt-4 space-y-3 bg-cyan-50/50 p-4 rounded-lg border border-cyan-100"><div class="flex items-center justify-between"><h3 class="text-sm font-semibold text-cyan-800">Wi-Fi Connection</h3><span class="text-[9px] font-bold px-2 py-1 rounded-full ${dev.connectedApId ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'}">${dev.connectedApId ? 'CONNECTED' : 'DISCONNECTED'}</span></div><div class="text-[10px] text-cyan-700 mb-1 leading-tight">Enter credentials and save settings to auto-connect.</div><div><input type="text" id="prop-wifi-ssid" value="${dev.ssid}" placeholder="SSID" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white mb-2"><input type="text" id="prop-wifi-pass" value="${dev.password}" placeholder="Password" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white"></div></div>`;
-                }
-                html += `<div class="pt-4 border-t mt-4"><div class="flex justify-between items-center mb-2"><h3 class="text-sm font-semibold text-slate-700">ARP Cache</h3><button onclick="clearARP('${dev.id}')" class="text-xs text-blue-500 hover:bg-blue-50 px-3 py-1 rounded transition">Clear</button></div><div class="bg-slate-50 border rounded-lg text-xs font-mono max-h-32 overflow-y-auto"><table class="w-full text-left"><thead class="bg-slate-200 text-slate-600 sticky top-0"><tr><th class="px-3 py-2">IP</th><th class="px-3 py-2">MAC</th></tr></thead><tbody>${Object.entries(dev.arpCache).map(([ip, mac]) => `<tr><td class="px-3 py-2 border-t">${ip}</td><td class="px-3 py-2 border-t">${mac}</td></tr>`).join('') || '<tr><td colspan="2" class="px-3 py-3 text-center text-slate-400">Cache empty</td></tr>'}</tbody></table></div></div>`;
-            } else if (dev.type === 'Router') {
-                html += `<div class="space-y-4"><div><div class="flex items-center justify-between mb-2"><h3 class="text-sm font-semibold text-slate-700">Interfaces</h3></div><div class="space-y-3">${Object.values(dev.interfaces).map(iface => `<div class="p-3 bg-slate-50 border rounded-lg text-xs relative ${iface.adminState==='down'?'opacity-60':''}"><div class="font-bold text-slate-700 mb-2 flex justify-between items-center"><span>${iface.id}</span><span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${iface.adminState==='up'?'bg-emerald-100 text-emerald-700':'bg-slate-200 text-slate-500'}">${iface.adminState.toUpperCase()}</span></div><div class="flex space-x-2"><input type="text" id="prop-ip-${iface.id.replace(/\//g,'-')}" value="${iface.ip}" placeholder="IP" autocomplete="off" autocorrect="off" spellcheck="false" class="w-1/2 px-2 py-2 border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"><input type="text" id="prop-sub-${iface.id.replace(/\//g,'-')}" value="${iface.subnet}" placeholder="Subnet" autocomplete="off" autocorrect="off" spellcheck="false" class="w-1/2 px-2 py-2 border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"></div></div>`).join('')}</div></div><label class="flex items-center space-x-3 bg-slate-50 p-3 rounded-lg border cursor-pointer"><input type="checkbox" id="prop-rip" ${dev.ripEnabled ? 'checked' : ''} class="w-5 h-5 text-blue-600 rounded cursor-pointer"><span class="text-sm font-semibold text-slate-700 cursor-pointer">Enable RIPv2 Routing</span></label><button onclick="saveRouterSettings('${dev.id}')" id="btn-save-router" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold transition-colors shadow-sm">Save Router Config</button><div class="pt-3 border-t mt-4"><div class="flex justify-between items-center mb-2"><h3 class="text-sm font-semibold text-slate-700">Routing Table</h3></div><div class="bg-slate-50 border rounded-lg text-[10px] font-mono max-h-40 overflow-y-auto"><table class="w-full text-left"><thead class="bg-slate-200 text-slate-600 sticky top-0"><tr><th class="px-2 py-2">T</th><th class="px-2 py-2">Net/Mask</th><th class="px-2 py-2">Next Hop</th><th class="px-2 py-2">Iface</th><th class="px-2 py-2">Met</th></tr></thead><tbody>${dev.routingTable.length === 0 ? '<tr><td colspan="5" class="px-2 py-3 text-center text-slate-400">Table empty</td></tr>' : dev.routingTable.map(r => `<tr><td class="px-2 py-2 border-t font-bold ${r.type==='C'?'text-blue-600':'text-orange-500'}">${r.type}</td><td class="px-2 py-2 border-t">${r.network}/${getPrefixLength(r.mask)}</td><td class="px-2 py-2 border-t">${r.nextHop}</td><td class="px-2 py-2 border-t">${r.interface}</td><td class="px-2 py-2 border-t">${r.metric}</td></tr>`).join('')}</tbody></table></div></div></div>`;
-            } else if (dev.type === 'AP') {
-                html += `<div class="space-y-4"><div><label class="block text-xs font-semibold text-slate-500 mb-1">SSID</label><input type="text" id="prop-ssid" value="${dev.ssid}" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"></div><div><label class="block text-xs font-semibold text-slate-500 mb-1">Band</label><select id="prop-band" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer"><option value="2.4" ${dev.band === '2.4' ? 'selected' : ''}>2.4 GHz (Wider Range)</option><option value="5" ${dev.band === '5' ? 'selected' : ''}>5 GHz (Shorter Range)</option></select></div><div><label class="block text-xs font-semibold text-slate-500 mb-1">Security</label><select id="prop-sec" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 cursor-pointer"><option value="WPA" ${dev.security === 'WPA' ? 'selected' : ''}>WPA</option><option value="WPA2" ${dev.security === 'WPA2' ? 'selected' : ''}>WPA2</option></select></div><div><label class="block text-xs font-semibold text-slate-500 mb-1">Password</label><input type="text" id="prop-pass" value="${dev.password}" placeholder="Optional" autocomplete="off" autocorrect="off" spellcheck="false" class="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"></div><div class="pt-3 border-t"><h3 class="text-sm font-semibold text-slate-700 mb-2">Port Status</h3><ul class="text-sm mt-1 space-y-2">${dev.ports.map(p => { const link = p.connectedLink ? links[p.connectedLink] : null; const nDev = link ? devices[link.source === dev.id ? link.target : link.source] : null; const statusColor = p.adminState === 'down' ? 'text-slate-400 bg-slate-100' : 'text-green-700 bg-green-100'; const statusText = p.adminState === 'down' ? 'DOWN' : (link ? 'UP' : 'DISCONNECTED'); const connText = nDev ? ` (→ ${nDev.name})` : ''; return `<li class="flex items-center justify-between"><span>Fa0/${p.id}${connText}</span> <span class="${statusColor} px-2 py-0.5 rounded-full font-bold text-[10px] tracking-wider">${statusText}</span></li>`; }).join('')}</ul></div><button onclick="saveAPSettings('${dev.id}')" id="btn-save-ap" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold transition-colors shadow-sm">Save AP Config</button></div>`;
-            } else if (dev.type === 'Switch') {
-                html += `<div class="pt-2"><div class="flex justify-between items-center mb-2"><h3 class="text-sm font-semibold text-slate-700">MAC Address Table</h3><button onclick="clearMACTable('${dev.id}')" class="text-xs text-blue-500 hover:bg-blue-50 px-3 py-1 rounded transition">Clear</button></div><div class="bg-slate-50 border rounded-lg text-xs font-mono max-h-48 overflow-y-auto"><table class="w-full text-left"><thead class="bg-slate-200 text-slate-600 sticky top-0"><tr><th class="px-3 py-2">MAC</th><th class="px-3 py-2">Port</th><th class="px-3 py-2">Age(s)</th></tr></thead><tbody>${Object.entries(dev.macTable).map(([mac, data]) => { const age = Math.floor((Date.now() - data.time)/1000); return `<tr><td class="px-3 py-2 border-t">${mac}</td><td class="px-3 py-2 border-t">${data.portId}</td><td class="px-3 py-2 border-t">${age}</td></tr>`; }).join('') || '<tr><td colspan="3" class="px-3 py-3 text-center text-slate-400">Table empty</td></tr>'}</tbody></table></div></div><div class="pt-4 mt-4 border-t"><h3 class="text-sm font-semibold text-slate-700 mb-1">STP Status</h3><p class="text-xs text-slate-500 mb-2">Root Bridge: <span class="font-mono font-bold">${devices[dev.stp.rootBridge]?.name || 'Unknown'}</span></p><ul class="text-sm space-y-2">${dev.ports.filter(p=>p.connectedLink).map(p => { const link = links[p.connectedLink]; const nId = link.source === dev.id ? link.target : link.source; const nDev = devices[nId]; const statusColor = p.adminState === 'down' ? 'text-slate-500 bg-slate-100' : (p.stpState === 'blocking' ? 'text-red-700 bg-red-100' : 'text-green-700 bg-green-100'); const statusText = p.adminState === 'down' ? 'DOWN' : p.stpState.toUpperCase(); return `<li class="flex items-center justify-between"><span>Port ${p.id} (→ ${nDev.name})</span> <span class="${statusColor} px-2 py-0.5 rounded-full font-bold text-[10px] tracking-wider">${statusText}</span></li>`; }).join('')}</ul></div>`;
-            }
-            html += `</div>`; PROP_PANEL.innerHTML = html;
         }
 
         window.updateLabelProp = (prop, val) => { if (selectedLabelId && labels[selectedLabelId]) { labels[selectedLabelId][prop] = val; renderNodes(); } };
