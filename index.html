@@ -2226,8 +2226,8 @@ async function initXR() {
 
   try {
     xrSession = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['local-floor', 'dom-overlay'],
-      optionalFeatures: ['hand-tracking'],
+      requiredFeatures: ['dom-overlay'],
+      optionalFeatures: ['local-floor', 'hand-tracking'],
       domOverlay:       { root: document.body },
     });
 
@@ -2235,14 +2235,19 @@ async function initXR() {
     xrSession.addEventListener('inputsourceschange', onInputSourcesChange);
 
     // Init WebGL context for transparent pass-through
+    // xrCompatible:true is set at context creation — no makeXRCompatible() needed
     const canvas = document.getElementById('xr-canvas');
     xrGlCtx = canvas.getContext('webgl2', { alpha:true, xrCompatible:true })
            || canvas.getContext('webgl',  { alpha:true, xrCompatible:true });
-    await xrGlCtx.makeXRCompatible();
     xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, xrGlCtx, { alpha:true }) });
 
-    // Get floor reference space
-    xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+    // Try floor-level reference space, fall back to local if unavailable
+    try {
+      xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+    } catch {
+      xrRefSpace = await xrSession.requestReferenceSpace('local');
+      log('Floor tracking unavailable, using local space.', 'warn');
+    }
 
     // Init hand tracker
     handTracker = new HandTracker(xrSession, xrRefSpace);
